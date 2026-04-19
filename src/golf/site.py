@@ -12,7 +12,7 @@ def render_html() -> str:
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Golf range analytics</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <style>
       :root {
         color-scheme: dark;
@@ -109,7 +109,20 @@ def render_html() -> str:
         margin-bottom: 28px;
       }
       .chart-wrap {
-        min-height: 320px;
+        display: flex;
+        flex-direction: column;
+      }
+      .chart-canvas {
+        position: relative;
+        height: 320px;
+        width: 100%;
+      }
+      .chart-canvas.tall {
+        height: 420px;
+      }
+      .chart-canvas canvas {
+        width: 100% !important;
+        height: 100% !important;
       }
       .tables {
         grid-template-columns: 1fr;
@@ -172,15 +185,21 @@ def render_html() -> str:
       <section class="grid charts">
         <div class="panel chart-wrap">
           <h2>Session trend</h2>
-          <canvas id="sessionTrend"></canvas>
+          <div class="chart-canvas">
+            <canvas id="sessionTrend"></canvas>
+          </div>
         </div>
         <div class="panel chart-wrap">
           <h2>Club carry and consistency</h2>
-          <canvas id="clubBars"></canvas>
+          <div class="chart-canvas">
+            <canvas id="clubBars"></canvas>
+          </div>
         </div>
         <div class="panel chart-wrap" style="grid-column: 1 / -1;">
           <h2>Dispersion map</h2>
-          <canvas id="dispersionChart"></canvas>
+          <div class="chart-canvas tall">
+            <canvas id="dispersionChart"></canvas>
+          </div>
         </div>
       </section>
 
@@ -214,10 +233,27 @@ def render_html() -> str:
     <script src="./site-data.js"></script>
     <script>
       const data = window.GOLF_SITE_DATA;
+      const chartGrid = document.querySelector(".charts");
 
       const number = (value, digits = 1, suffix = "") => {
         if (value === null || value === undefined || Number.isNaN(value)) return "—";
         return `${Number(value).toFixed(digits)}${suffix}`;
+      };
+
+      const showChartError = (message) => {
+        if (!chartGrid) return;
+        const error = document.createElement("p");
+        error.className = "small";
+        error.textContent = message;
+        chartGrid.prepend(error);
+      };
+
+      const createChart = (elementId, config) => {
+        const canvas = document.getElementById(elementId);
+        if (!canvas || typeof window.Chart === "undefined") {
+          return null;
+        }
+        return new window.Chart(canvas, config);
       };
 
       document.getElementById("hero-text").textContent =
@@ -295,7 +331,7 @@ def render_html() -> str:
         sessions.appendChild(card);
       });
 
-      new Chart(document.getElementById("sessionTrend"), {
+      const sessionTrendChart = createChart("sessionTrend", {
         type: "line",
         data: {
           labels: data.charts.timeline.labels,
@@ -329,7 +365,7 @@ def render_html() -> str:
         },
       });
 
-      new Chart(document.getElementById("clubBars"), {
+      const clubBarChart = createChart("clubBars", {
         type: "bar",
         data: {
           labels: data.charts.clubs.labels,
@@ -343,12 +379,23 @@ def render_html() -> str:
               label: "Consistency score",
               data: data.charts.clubs.consistency_score,
               backgroundColor: "rgba(95, 209, 139, 0.6)",
+              yAxisID: "y1",
             },
           ],
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          scales: {
+            y: { beginAtZero: true, title: { display: true, text: "Carry distance (yds)" } },
+            y1: {
+              beginAtZero: true,
+              position: "right",
+              max: 100,
+              grid: { drawOnChartArea: false },
+              title: { display: true, text: "Consistency score" },
+            },
+          },
         },
       });
 
@@ -360,25 +407,28 @@ def render_html() -> str:
       const colors = ["#57b5ff", "#5fd18b", "#ffb454", "#ff7b72", "#9b8cff", "#7ce2ff"];
       const dispersionDatasets = Object.entries(dispersionByClub).map(([club, points], index) => ({
         label: club,
-        data: points,
-        parsing: false,
+        data: points.map((point) => ({ x: point.x, y: point.y })),
         pointRadius: 4,
         pointHoverRadius: 6,
         borderWidth: 0,
         backgroundColor: colors[index % colors.length],
       }));
-      new Chart(document.getElementById("dispersionChart"), {
+      const dispersionChart = createChart("dispersionChart", {
         type: "scatter",
         data: { datasets: dispersionDatasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           scales: {
-            x: { title: { display: true, text: "Offline / deviation (yds)" } },
-            y: { title: { display: true, text: "Carry distance (yds)" } },
+            x: { type: "linear", title: { display: true, text: "Offline / deviation (yds)" } },
+            y: { type: "linear", title: { display: true, text: "Carry distance (yds)" } },
           },
         },
       });
+
+      if (!sessionTrendChart || !clubBarChart || !dispersionChart) {
+        showChartError("Some charts could not be initialized. Refresh after the page assets finish loading.");
+      }
     </script>
   </body>
 </html>
