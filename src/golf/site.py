@@ -177,11 +177,6 @@ def render_html() -> str:
 
       <section class="grid stats" id="overview"></section>
 
-      <section class="panel recommendations">
-        <h2>What to work on</h2>
-        <div class="recommendation-list" id="recommendations"></div>
-      </section>
-
       <section class="grid charts">
         <div class="panel chart-wrap">
           <h2>Session trend</h2>
@@ -227,6 +222,11 @@ def render_html() -> str:
           <h2>Sessions</h2>
           <div class="grid" id="sessions"></div>
         </div>
+      </section>
+
+      <section class="panel recommendations">
+        <h2>What to work on</h2>
+        <div class="recommendation-list" id="recommendations"></div>
       </section>
     </main>
 
