@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "golf-range-analytics"
+version = "0.1.0"
+description = "Range-session analytics, recommendations, and GitHub Pages publishing."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Jerry Gamblin" }
+]
+
+[project.scripts]
+golf-build = "golf.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
