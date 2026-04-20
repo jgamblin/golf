@@ -1,0 +1,198 @@
+# Golf launch monitor field alias mappings.
+# Keys are raw CSV column names; values are the normalized internal field names.
+# Add new monitor variants here without touching Python code.
+
+aliases:
+  # ── FlightScope / Mevo+ ─────────────────────────────────────────────────────
+  Brand/Model: brand_model
+  Club Name: club_name
+  Club Type: club_type
+  Club Speed: club_speed
+  Attack Angle: attack_angle
+  Club Path: club_path
+  Club Face: club_face
+  Face to Path: face_to_path
+  Ball Speed: ball_speed
+  Smash Factor: smash_factor
+  Launch Angle: launch_angle
+  Launch Direction: launch_direction
+  Spin Rate: spin_rate
+  Spin Rate Type: spin_rate_type
+  Spin Axis: spin_axis
+  Apex Height: apex_height
+  Carry Distance: carry_distance
+  Carry Deviation Angle: carry_deviation_angle
+  Carry Deviation Distance: carry_deviation_distance
+  Total Distance: total_distance
+  Total Deviation Angle: total_deviation_angle
+  Total Deviation Distance: total_deviation_distance
+  Target Total Distance: target_total_distance
+  Target Carry Distance: target_carry_distance
+  Air Density: air_density
+  Air Pressure: air_pressure
+  Relative Humidity: relative_humidity
+  Back Stroke Length: back_stroke_length
+  Target Backswing Time: target_backswing_time
+  Target Downswing Time: target_downswing_time
+  Forward Stroke Length: forward_stroke_length
+  Backswing Time: backswing_time
+  Downswing Time: downswing_time
+  Target Tempo: target_tempo
+  Swing Tempo: swing_tempo
+
+  # ── Trackman 4 ──────────────────────────────────────────────────────────────
+  Club Head Speed: club_speed
+  Clubhead Speed: club_speed
+  Ball Velocity: ball_speed
+  Smash: smash_factor
+  V-Launch Angle: launch_angle
+  H-Launch Angle: launch_direction
+  Spin: spin_rate
+  Tilt Axis: spin_axis
+  Peak Height: apex_height
+  Carry: carry_distance
+  Offline: carry_deviation_distance
+  Total: total_distance
+  Club Path (TM): club_path
+  Face Angle: club_face
+  Impact Location X: face_to_path   # approximation; remove if you track separately
+  Dynamic Loft: launch_angle        # prefer Launch Angle when both present
+  Angle of Attack: attack_angle
+  Low Point: attack_angle
+
+  # ── Garmin Approach R10 (Garmin Golf app — Range export) ────────────────────
+  # The Range export mirrors FlightScope column names but adds unit suffixes.
+  # All variants below are produced by different app versions / locales.
+  "Club Speed (mph)": club_speed
+  "Club Speed (MPH)": club_speed
+  "Ball Speed (mph)": ball_speed
+  "Ball Speed (MPH)": ball_speed
+  "Carry (yds)": carry_distance
+  "Carry (Yds)": carry_distance
+  "Carry (YDS)": carry_distance
+  "Total (yds)": total_distance
+  "Total (Yds)": total_distance
+  "Total Distance (yds)": total_distance
+  "Total Distance (Yds)": total_distance
+  "Offline (yds)": carry_deviation_distance
+  "Offline (Yds)": carry_deviation_distance
+  "Launch Angle (deg)": launch_angle
+  "Launch Angle (Deg)": launch_angle
+  "Launch Direction (deg)": launch_direction
+  "Launch Direction (Deg)": launch_direction
+  "Attack Angle (deg)": attack_angle
+  "Attack Angle (Deg)": attack_angle
+  "Club Path (deg)": club_path
+  "Club Path (Deg)": club_path
+  "Face Angle (deg)": club_face
+  "Face Angle (Deg)": club_face
+  "Face to Path (deg)": face_to_path
+  "Face to Path (Deg)": face_to_path
+  "Spin Rate (rpm)": spin_rate
+  "Spin Rate (RPM)": spin_rate
+  "Back Spin (rpm)": spin_rate
+  "Back Spin (RPM)": spin_rate
+  "Side Spin (rpm)": spin_rate     # only used when Spin Rate absent
+  "Side Spin (RPM)": spin_rate
+  "Spin Axis (deg)": spin_axis
+  "Smash Factor": smash_factor
+  "Apex Height (ft)": apex_height  # Garmin reports apex in feet; see unit_conversions
+  "Apex Height (yds)": apex_height
+
+  # ── Garmin Golf app — Activity / Round export ────────────────────────────────
+  # Round exports include metadata preamble rows and use these header names.
+  # "Shot Number" is stored as garmin_shot_number (informational only).
+  Shot Number: garmin_shot_number
+  "Shot #": garmin_shot_number
+  Club: club_name
+  Hole: garmin_hole
+  "Ball Speed": ball_speed
+  "Club Speed": club_speed
+  "Carry Distance": carry_distance
+  "Total Distance": total_distance
+  "Lateral Distance": carry_deviation_distance
+  "Launch Angle": launch_angle
+  "Spin Rate": spin_rate
+  "Smash Factor": smash_factor
+
+  # ── Rapsodo MLM2 ────────────────────────────────────────────────────────────
+  ClubSpeed: club_speed
+  BallSpeed: ball_speed
+  LaunchAngle: launch_angle
+  LaunchDirection: launch_direction
+  SpinRate: spin_rate
+  SpinAxis: spin_axis
+  CarryDistance: carry_distance
+  TotalDistance: total_distance
+  LateralDistance: carry_deviation_distance
+  SmashFactor: smash_factor
+
+  # ── SkyTrak / SkyTrak+ ──────────────────────────────────────────────────────
+  "Club Speed (MPH)": club_speed
+  "Ball Speed (MPH)": ball_speed
+  "Carry Distance (YDS)": carry_distance
+  "Total Distance (YDS)": total_distance
+  "Lateral Landing (YDS)": carry_deviation_distance
+  "Launch Angle (DEG)": launch_angle
+  "Back Spin (RPM)": spin_rate
+  "Side Spin (RPM)": spin_rate
+  "Smash Factor": smash_factor
+
+# ── Unit-conversion rules ────────────────────────────────────────────────────
+# When the CSV units row contains these strings (case-insensitive), multiply
+# the parsed value by the given factor to convert to the imperial standard.
+unit_conversions:
+  # Distance
+  m:      1.09361    # metres → yards
+  meter:  1.09361
+  metres: 1.09361
+  meters: 1.09361
+  km:     1093.61    # kilometres → yards (rare, but some monitors export km)
+
+  # Speed
+  "m/s":    2.23694   # metres-per-second → mph
+  "km/h":   0.621371  # kilometres-per-hour → mph
+  "kph":    0.621371
+
+  # The following are already imperial — no conversion needed (factor 1.0).
+  yds:    1.0
+  yards:  1.0
+  mph:    1.0
+  rpm:    1.0
+  deg:    1.0
+  "%":    1.0
+  ft:     0.33333    # feet → yards (used for Garmin apex height)
+  feet:   0.33333
+
+# Fields that carry distance/speed units and should be converted.
+distance_speed_fields:
+  - club_speed
+  - ball_speed
+  - carry_distance
+  - carry_deviation_distance
+  - total_distance
+  - total_deviation_distance
+  - apex_height
+
+# ── Header-row anchors ───────────────────────────────────────────────────────
+# Cell values (case-insensitive) that, when found in a row, indicate it is a
+# header row even if only one standard alias is present.  This allows the
+# loader to skip past Garmin Golf app metadata preamble rows.
+header_anchors:
+  - shot number
+  - shot #
+  - club
+  - hole
+  - date
+  - time
+  - timestamp
+  - datetime
+
+# ── Zero-value critical fields ───────────────────────────────────────────────
+# The Garmin R10 occasionally records phantom shots where these key fields
+# read exactly 0.0.  Values of 0.0 are replaced with null and the shot is
+# flagged so analytics are not skewed.
+zero_critical_fields:
+  - ball_speed
+  - carry_distance
+  - club_speed

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=69"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "golf-range-analytics"
@@ -11,9 +11,21 @@ requires-python = ">=3.11"
 authors = [
   { name = "Jerry Gamblin" }
 ]
+dependencies = [
+  "pyyaml>=6.0",
+]
 
 [project.scripts]
 golf-build = "golf.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/golf"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
+
+[tool.uv]
+dev-dependencies = [
+  "pytest>=8.0",
+  "ruff>=0.4",
+]

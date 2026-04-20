@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import defaultdict
-from statistics import pstdev
+from statistics import pstdev, quantiles
 from typing import Any
 
 from .ml import score_shot_anomalies
@@ -41,7 +41,8 @@ def first_value(*values: float | int | None) -> float | int | None:
     return None
 
 
-def expected_smash_factor(club_label: str) -> float | None:
+def _SMASH_FALLBACK(club_label: str) -> float | None:
+    """Hardcoded smash-factor benchmarks used when historical data is sparse."""
     club = club_label.lower()
     if "putter" in club:
         return None
@@ -64,11 +65,69 @@ def expected_smash_factor(club_label: str) -> float | None:
     return 1.20
 
 
+def potential_smash_factor(club_label: str, shots: list[dict[str, Any]], *, min_shots: int = 5) -> float | None:
+    """Return the 90th-percentile smash factor from *shots* for *club_label*.
+
+    This represents the player's *achievable* peak for that specific club
+    rather than an industry-average benchmark.  When fewer than *min_shots*
+    valid readings exist we fall back to the hardcoded standard.
+    """
+    values = sorted(
+        float(shot["smash_factor"])
+        for shot in shots
+        if shot.get("club_label") == club_label and isinstance(shot.get("smash_factor"), (int, float))
+    )
+    if len(values) < min_shots:
+        return _SMASH_FALLBACK(club_label)
+    # quantiles(n=10) returns [10th, 20th, ..., 90th] — index 8 is the 90th.
+    return round(quantiles(values, n=10)[8], 3)
+
+
+# Keep the old name as a convenience alias used elsewhere in the codebase.
+def expected_smash_factor(club_label: str) -> float | None:
+    return _SMASH_FALLBACK(club_label)
+
+
 def signed_direction_label(value: float) -> str:
     return "right" if value > 0 else "left"
 
 
-def consistency_score(summary: dict[str, Any]) -> float | None:
+def _consistency_weights(all_club_summaries: list[dict[str, Any]]) -> dict[str, float]:
+    """Derive penalty multipliers from the population of club summaries.
+
+    Each weight is scaled so that a value equal to the population mean
+    produces ~10 penalty points, keeping the 0-100 score range intuitive
+    regardless of the dataset's physical units.
+    """
+    fields = {
+        "carry_cv": 120.0,
+        "offline_stddev": 1.3,
+        "face_to_path_stddev": 4.0,
+        "tempo_cv": 90.0,
+    }
+    weights: dict[str, float] = {}
+    for field, default_weight in fields.items():
+        values = [float(s[field]) for s in all_club_summaries if isinstance(s.get(field), (int, float)) and s[field] > 0]
+        if len(values) >= 3:
+            pop_mean = sum(values) / len(values)
+            # Target: mean value → 10 penalty points.
+            weights[field] = (10.0 / pop_mean) if pop_mean > 0 else default_weight
+        else:
+            weights[field] = default_weight
+    return weights
+
+
+def consistency_score(summary: dict[str, Any], weights: dict[str, float] | None = None) -> float | None:
+    """Return a 0-100 consistency score for a single club summary.
+
+    When *weights* are supplied (computed by :func:`_consistency_weights`)
+    the penalty multipliers are calibrated to the current dataset so scores
+    are comparable across sessions and monitor types.  Without *weights* the
+    original fixed multipliers are used as a sensible fallback.
+    """
+    if weights is None:
+        weights = {"carry_cv": 120.0, "offline_stddev": 1.3, "face_to_path_stddev": 4.0, "tempo_cv": 90.0}
+
     carry_cv = summary.get("carry_cv")
     offline_std = summary.get("offline_stddev")
     face_std = summary.get("face_to_path_stddev")
@@ -76,13 +135,13 @@ def consistency_score(summary: dict[str, Any]) -> float | None:
 
     pieces = []
     if carry_cv is not None:
-        pieces.append(carry_cv * 120)
+        pieces.append(carry_cv * weights.get("carry_cv", 120.0))
     if offline_std is not None:
-        pieces.append(offline_std * 1.3)
+        pieces.append(offline_std * weights.get("offline_stddev", 1.3))
     if face_std is not None:
-        pieces.append(face_std * 4)
+        pieces.append(face_std * weights.get("face_to_path_stddev", 4.0))
     if tempo_cv is not None:
-        pieces.append(tempo_cv * 90)
+        pieces.append(tempo_cv * weights.get("tempo_cv", 90.0))
     if not pieces:
         return None
     return round(max(0.0, 100.0 - min(100.0, sum(pieces))), 1)
@@ -101,7 +160,7 @@ def attach_ml_scores(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return enriched_sessions
 
 
-def summarize_club(club_label: str, shots: list[dict[str, Any]]) -> dict[str, Any]:
+def summarize_club(club_label: str, shots: list[dict[str, Any]], weights: dict[str, float] | None = None) -> dict[str, Any]:
     summary = {
         "club_label": club_label,
         "shot_count": len(shots),
@@ -126,19 +185,21 @@ def summarize_club(club_label: str, shots: list[dict[str, Any]]) -> dict[str, An
         "carry_cv": coefficient_of_variation([shot.get("carry_distance") for shot in shots]),
         "tempo_cv": coefficient_of_variation([shot.get("swing_tempo") for shot in shots]),
         "outlier_rate": average([1.0 if shot.get("is_outlier") else 0.0 for shot in shots]),
+        # Potential smash derived from the player's own top-10 % for this club.
+        "potential_smash_factor": potential_smash_factor(club_label, shots),
     }
-    summary["consistency_score"] = consistency_score(summary)
+    summary["consistency_score"] = consistency_score(summary, weights)
     return summary
 
 
-def summarize_session(session: dict[str, Any]) -> dict[str, Any]:
+def summarize_session(session: dict[str, Any], weights: dict[str, float] | None = None) -> dict[str, Any]:
     shots = session["shots"]
     clubs: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for shot in shots:
         clubs[shot["club_label"]].append(shot)
 
     club_summaries = [
-        summarize_club(club_label, club_shots)
+        summarize_club(club_label, club_shots, weights)
         for club_label, club_shots in sorted(clubs.items(), key=lambda item: item[0])
     ]
     avg_offline = average(
@@ -157,6 +218,7 @@ def summarize_session(session: dict[str, Any]) -> dict[str, Any]:
         "avg_ball_speed": average([shot.get("ball_speed") for shot in shots]),
         "avg_offline_distance": avg_offline,
         "outlier_rate": average([1.0 if shot.get("is_outlier") else 0.0 for shot in shots]),
+        "flagged_shot_count": session.get("flagged_shot_count", 0),
         "club_summaries": club_summaries,
     }
 
@@ -164,6 +226,7 @@ def summarize_session(session: dict[str, Any]) -> dict[str, Any]:
 def build_recommendations(
     session_summaries: list[dict[str, Any]],
     club_summaries: list[dict[str, Any]],
+    all_shots: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
 
@@ -218,20 +281,22 @@ def build_recommendations(
                 }
             )
 
-        expected_smash = expected_smash_factor(club_label)
+        # Use the player's own potential (top-10%) as the smash benchmark.
+        club_shots = [s for s in (all_shots or []) if s.get("club_label") == club_label]
+        benchmark_smash = potential_smash_factor(club_label, club_shots)
         avg_smash = club.get("avg_smash_factor")
-        if expected_smash is not None and avg_smash is not None and avg_smash <= expected_smash - 0.08:
+        if benchmark_smash is not None and avg_smash is not None and avg_smash <= benchmark_smash - 0.08:
             recommendations.append(
                 {
                     "title": f"Improve centered contact with {club_label}",
                     "focus_area": "strike quality",
-                    "severity": min(100, round((expected_smash - avg_smash) * 150)),
+                    "severity": min(100, round((benchmark_smash - avg_smash) * 150)),
                     "club_label": club_label,
                     "summary": (
-                        f"Average smash factor is {avg_smash:.2f} against an expected benchmark near {expected_smash:.2f}. "
+                        f"Average smash factor is {avg_smash:.2f} against your potential benchmark of {benchmark_smash:.2f}. "
                         "Prioritize centered strike drills before speed work."
                     ),
-                    "evidence": f"Smash factor: {avg_smash:.2f}",
+                    "evidence": f"Smash factor: {avg_smash:.2f} (potential: {benchmark_smash:.2f})",
                 }
             )
 
@@ -267,26 +332,67 @@ def build_recommendations(
                 }
             )
 
+    # ── Gapping analysis: detect bunching (overlap) AND voids ───────────────
     sorted_clubs = sorted(
         [club for club in club_summaries if club.get("avg_carry_distance") is not None],
         key=lambda club: club["avg_carry_distance"],
     )
     for left, right in zip(sorted_clubs, sorted_clubs[1:]):
         gap = right["avg_carry_distance"] - left["avg_carry_distance"]
-        if gap < 7 or gap > 25:
+        left_std = left.get("carry_stddev") or 0.0
+        right_std = right.get("carry_stddev") or 0.0
+        overlap = (left_std + right_std) - gap
+
+        if gap < 7 or overlap > 0:
             recommendations.append(
                 {
-                    "title": f"Check the gap between {left['club_label']} and {right['club_label']}",
+                    "title": f"Bunching: {left['club_label']} and {right['club_label']} overlap",
                     "focus_area": "distance gapping",
-                    "severity": min(100, round(abs(15 - gap) * 5)),
-                    "club_label": f"{left['club_label']} -> {right['club_label']}",
+                    "severity": min(100, round(max(0, 7 - gap) * 8 + max(0, overlap) * 3)),
+                    "club_label": f"{left['club_label']} → {right['club_label']}",
                     "summary": (
-                        f"The current carry gap is {gap:.1f} yards. "
-                        "Use a focused gapping session to confirm whether this is a true distance bucket or a strike-quality artifact."
+                        f"These clubs carry within {gap:.1f} yards of each other"
+                        + (f" and their dispersion windows overlap by {overlap:.1f} yards" if overlap > 0 else "")
+                        + ". Consider whether one club is redundant or a loft/shaft change would separate them."
+                    ),
+                    "evidence": f"Carry gap: {gap:.1f} yds | overlap: {max(0, overlap):.1f} yds",
+                }
+            )
+        elif gap > 25:
+            recommendations.append(
+                {
+                    "title": f"Distance void: {left['club_label']} to {right['club_label']}",
+                    "focus_area": "distance gapping",
+                    "severity": min(100, round((gap - 25) * 4)),
+                    "club_label": f"{left['club_label']} → {right['club_label']}",
+                    "summary": (
+                        f"There is a {gap:.1f}-yard void between these clubs. "
+                        "Evaluate adding a club (hybrid, utility iron, or strong-lofted wedge) to fill this window."
                     ),
                     "evidence": f"Carry gap: {gap:.1f} yds",
                 }
             )
+
+    # ── Data-quality advisory ────────────────────────────────────────────────
+    total_shots = sum(s.get("shot_count", 0) for s in session_summaries)
+    total_flagged = sum(s.get("flagged_shot_count", 0) for s in session_summaries)
+    if total_shots > 0 and total_flagged / total_shots >= 0.10:
+        flagged_pct = round(total_flagged / total_shots * 100)
+        recommendations.append(
+            {
+                "title": "Review data quality: high rate of zero-value shots",
+                "focus_area": "data quality",
+                "severity": min(100, flagged_pct * 2),
+                "club_label": "all clubs",
+                "summary": (
+                    f"{flagged_pct}% of shots ({total_flagged}/{total_shots}) had zero ball speed or carry distance "
+                    "and were excluded from averages. This is common when the Garmin R10 detects a swing but loses "
+                    "the ball (e.g. hitting into a net seam or low-light conditions). "
+                    "Consider re-checking your sensor placement and lighting."
+                ),
+                "evidence": f"Flagged shots: {total_flagged}/{total_shots}",
+            }
+        )
 
     recommendations.sort(key=lambda item: item["severity"], reverse=True)
     return recommendations[:8]
@@ -322,12 +428,17 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
                 }
             )
 
+    miss_trend = []
+    for session in session_summaries:
+        miss_trend.append(round_or_none(session.get("avg_offline_distance")))
+
     return {
         "timeline": {
             "labels": timeline_labels,
             "avg_carry_distance": carry_trend,
             "avg_smash_factor": smash_trend,
             "avg_offline_distance": offline_trend,
+            "miss_direction": miss_trend,
         },
         "clubs": {
             "labels": club_labels,
@@ -341,18 +452,32 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
 
 def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
     enriched_sessions = attach_ml_scores(sessions)
-    session_summaries = [summarize_session(session) for session in enriched_sessions]
+
+    # Collect all shots once so weights and benchmarks can use the full history.
+    all_shots = [shot for session in enriched_sessions for shot in session["shots"]]
 
     club_buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for session in enriched_sessions:
-        for shot in session["shots"]:
-            club_buckets[shot["club_label"]].append(shot)
-    club_summaries = [
+    for shot in all_shots:
+        club_buckets[shot["club_label"]].append(shot)
+
+    # First pass: build summaries without normalised weights.
+    raw_club_summaries = [
         summarize_club(club_label, club_shots)
         for club_label, club_shots in sorted(club_buckets.items(), key=lambda item: item[0])
     ]
 
-    recommendations = build_recommendations(session_summaries, club_summaries)
+    # Derive population-calibrated consistency weights from the full club set.
+    pop_weights = _consistency_weights(raw_club_summaries)
+
+    # Second pass: rebuild summaries with calibrated weights.
+    club_summaries = [
+        summarize_club(club_label, club_buckets[club_label], pop_weights)
+        for club_label in sorted(club_buckets.keys())
+    ]
+
+    session_summaries = [summarize_session(session, pop_weights) for session in enriched_sessions]
+
+    recommendations = build_recommendations(session_summaries, club_summaries, all_shots)
 
     total_shots = sum(session["shot_count"] for session in session_summaries)
     avg_consistency = average([club.get("consistency_score") for club in club_summaries])

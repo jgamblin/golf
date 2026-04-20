@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from golf.cli import build_command
+from golf.ingest import parse_float, parse_timestamp
 
 
 SAMPLE_CSV = """Date,Player,Club Name,Brand/Model,Club Type,Club Speed,Attack Angle,Club Path,Club Face,Face to Path,Ball Speed,Smash Factor,Launch Angle,Launch Direction,Backspin,Sidespin,Spin Rate,Spin Rate Type,Spin Axis,Apex Height,Carry Distance,Carry Deviation Angle,Carry Deviation Distance,Total Distance,Total Deviation Angle,Total Deviation Distance,Target Total Distance,Target Carry Distance,Note,Tag,Air Density,Temperature,Air Pressure,Relative Humidity,Back Stroke Length,Target Backswing Time,Target Downswing Time,Forward Stroke Length,Backswing Time,Downswing Time,Target Tempo,Swing Tempo
@@ -41,6 +42,200 @@ class PipelineTests(unittest.TestCase):
             payload = json.loads((output_dir / "analysis.json").read_text(encoding="utf-8"))
             self.assertGreaterEqual(len(payload["recommendations"]), 1)
             self.assertEqual(payload["clubs"][0]["club_label"], "9 Iron")
+
+
+class TestParseFloat(unittest.TestCase):
+    def test_valid_integer_string(self) -> None:
+        self.assertEqual(parse_float("42"), 42.0)
+
+    def test_valid_float_string(self) -> None:
+        self.assertAlmostEqual(parse_float("3.14"), 3.14)
+
+    def test_valid_negative(self) -> None:
+        self.assertAlmostEqual(parse_float("-7.5"), -7.5)
+
+    def test_empty_string_returns_none(self) -> None:
+        self.assertIsNone(parse_float(""))
+
+    def test_whitespace_only_returns_none(self) -> None:
+        self.assertIsNone(parse_float("   "))
+
+    def test_non_numeric_text_returns_none(self) -> None:
+        self.assertIsNone(parse_float("abc"))
+
+    def test_mixed_alphanumeric_returns_none(self) -> None:
+        self.assertIsNone(parse_float("12px"))
+
+    def test_bracketed_unit_annotation_returns_none(self) -> None:
+        self.assertIsNone(parse_float("[mph]"))
+
+    def test_leading_and_trailing_whitespace_stripped(self) -> None:
+        self.assertAlmostEqual(parse_float("  1.5  "), 1.5)
+
+    def test_zero_string(self) -> None:
+        self.assertEqual(parse_float("0"), 0.0)
+
+
+class TestParseTimestamp(unittest.TestCase):
+    def test_short_year_format(self) -> None:
+        result = parse_timestamp("4/19/26 11:45:45")
+        self.assertIsNotNone(result)
+        self.assertTrue(result.startswith("2026-04-19"))
+
+    def test_four_digit_year_format(self) -> None:
+        result = parse_timestamp("04/19/2026 11:45:45")
+        self.assertIsNotNone(result)
+        self.assertTrue(result.startswith("2026-04-19"))
+
+    def test_empty_string_returns_none(self) -> None:
+        self.assertIsNone(parse_timestamp(""))
+
+    def test_whitespace_only_returns_none(self) -> None:
+        self.assertIsNone(parse_timestamp("   "))
+
+    def test_plain_text_returns_none(self) -> None:
+        self.assertIsNone(parse_timestamp("not-a-date"))
+
+    def test_partial_date_returns_none(self) -> None:
+        self.assertIsNone(parse_timestamp("4/19/26"))
+
+    def test_iso_format_not_supported_returns_none(self) -> None:
+        # The parser only supports MM/DD/YY and MM/DD/YYYY; ISO strings should
+        # return None rather than raise.
+        self.assertIsNone(parse_timestamp("2026-04-19T11:45:45"))
+
+    def test_result_is_iso_string(self) -> None:
+        result = parse_timestamp("4/19/26 11:45:45")
+        self.assertIsInstance(result, str)
+        # Basic ISO-8601 shape check
+        self.assertRegex(result, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
+
+    def test_whitespace_stripped_before_parse(self) -> None:
+        result = parse_timestamp("  4/19/26 11:45:45  ")
+        self.assertIsNotNone(result)
+
+
+# ── Garmin R10-specific ingestion tests ──────────────────────────────────────
+
+# Simulates the Garmin Golf app's activity/round export: several metadata rows
+# followed by "Shot Number,Club,..." headers (no timestamp column).
+GARMIN_ROUND_CSV = """\
+Session Title,My Practice Round
+Date,2026-04-19
+Player,Jerry Gamblin
+Notes,Warm-up session at the range
+
+Shot Number,Club,Ball Speed (mph),Club Speed (mph),Carry (yds),Total (yds),Offline (yds),Launch Angle (deg),Spin Rate (rpm),Smash Factor
+1,9 Iron,120,88,148,162,-3,19,6800,1.36
+2,9 Iron,118,87,145,159,2,18,6900,1.36
+3,9 Iron,0,85,0,0,-1,17,0,0
+4,Pitching Wedge,105,79,120,130,4,22,7200,1.33
+5,Pitching Wedge,107,80,123,133,-2,21,7100,1.34
+"""
+
+# Simulates the Garmin Golf app's range export (FlightScope-style headers) but
+# with a BOM and units-suffixed column names.
+GARMIN_RANGE_SUFFIXED_CSV = """\
+Date,Player,Club Type,Ball Speed (mph),Club Speed (mph),Carry (yds),Total (yds),Offline (yds),Launch Angle (deg),Smash Factor,Apex Height (ft)
+,,,[mph],[mph],[yds],[yds],[yds],[deg],,[ft]
+4/19/26 11:50:00,Jerry Gamblin,7 Iron,130,91,165,178,5,19,1.43,82
+4/19/26 11:51:00,Jerry Gamblin,7 Iron,128,90,162,175,-3,18,1.42,80
+4/19/26 11:52:00,Jerry Gamblin,7 Iron,131,92,168,181,2,20,1.42,85
+"""
+
+
+class TestGarminR10Ingestion(unittest.TestCase):
+    """Verify that Garmin-specific CSV quirks are handled correctly."""
+
+    def _write_and_load(self, csv_text: str) -> dict:
+        from golf.ingest import load_session
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.csv"
+            path.write_text(csv_text, encoding="utf-8")
+            return load_session(path)
+
+    # ── Preamble rows are skipped ──────────────────────────────────────────
+    def test_metadata_preamble_rows_skipped(self) -> None:
+        session = self._write_and_load(GARMIN_ROUND_CSV)
+        self.assertGreater(len(session["shots"]), 0, "No shots were parsed")
+
+    def test_correct_shot_count_after_preamble(self) -> None:
+        session = self._write_and_load(GARMIN_ROUND_CSV)
+        # Row 3 has ball_speed=0 → cleaned to None but still a shot row.
+        self.assertEqual(len(session["shots"]), 5)
+
+    # ── Club column maps to club_label ─────────────────────────────────────
+    def test_club_column_maps_to_club_label(self) -> None:
+        session = self._write_and_load(GARMIN_ROUND_CSV)
+        club_labels = {shot["club_label"] for shot in session["shots"]}
+        self.assertIn("9 Iron", club_labels)
+        self.assertIn("Pitching Wedge", club_labels)
+
+    # ── Unit-suffixed column names resolve correctly ────────────────────────
+    def test_unit_suffixed_ball_speed_maps_correctly(self) -> None:
+        session = self._write_and_load(GARMIN_RANGE_SUFFIXED_CSV)
+        shot = session["shots"][0]
+        self.assertIsNotNone(shot.get("ball_speed"), "ball_speed should be parsed")
+        self.assertAlmostEqual(shot["ball_speed"], 130.0, places=1)
+
+    def test_unit_suffixed_carry_maps_correctly(self) -> None:
+        session = self._write_and_load(GARMIN_RANGE_SUFFIXED_CSV)
+        shot = session["shots"][0]
+        self.assertIsNotNone(shot.get("carry_distance"))
+        self.assertAlmostEqual(shot["carry_distance"], 165.0, places=1)
+
+    def test_apex_height_in_feet_converted_to_yards(self) -> None:
+        session = self._write_and_load(GARMIN_RANGE_SUFFIXED_CSV)
+        shot = session["shots"][0]
+        apex = shot.get("apex_height")
+        self.assertIsNotNone(apex)
+        # 82 ft × 0.33333 ≈ 27.3 yds
+        self.assertAlmostEqual(apex, 82 * 0.33333, places=1)
+
+    # ── Zero-value phantom shot cleaning ──────────────────────────────────
+    def test_zero_ball_speed_nulled(self) -> None:
+        session = self._write_and_load(GARMIN_ROUND_CSV)
+        flagged = [s for s in session["shots"] if s.get("data_quality_flags")]
+        self.assertEqual(len(flagged), 1, "Expected exactly one flagged shot")
+        self.assertIsNone(flagged[0]["ball_speed"])
+
+    def test_zero_carry_nulled(self) -> None:
+        session = self._write_and_load(GARMIN_ROUND_CSV)
+        flagged = [s for s in session["shots"] if s.get("data_quality_flags")]
+        self.assertIsNone(flagged[0].get("carry_distance"))
+
+    def test_data_quality_flag_label_correct(self) -> None:
+        session = self._write_and_load(GARMIN_ROUND_CSV)
+        flagged = [s for s in session["shots"] if s.get("data_quality_flags")]
+        flags = flagged[0]["data_quality_flags"]
+        self.assertIn("zero_ball_speed", flags)
+
+    def test_flagged_shot_count_in_session(self) -> None:
+        session = self._write_and_load(GARMIN_ROUND_CSV)
+        self.assertEqual(session["flagged_shot_count"], 1)
+
+    # ── Non-flagged shots have valid numeric values ────────────────────────
+    def test_clean_shots_have_ball_speed(self) -> None:
+        session = self._write_and_load(GARMIN_ROUND_CSV)
+        clean = [s for s in session["shots"] if not s.get("data_quality_flags")]
+        for shot in clean:
+            self.assertIsNotNone(shot.get("ball_speed"))
+            self.assertGreater(shot["ball_speed"], 0)
+
+    # ── Full pipeline processes Garmin round CSV without error ─────────────
+    def test_full_pipeline_garmin_round_format(self) -> None:
+        from golf.cli import build_command
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_dir = root / "Data"
+            output_dir = root / "output" / "site"
+            data_dir.mkdir(parents=True)
+            (data_dir / "garmin_round.csv").write_text(GARMIN_ROUND_CSV, encoding="utf-8")
+            analysis = build_command(data_dir, output_dir)
+            self.assertGreaterEqual(analysis["overview"]["total_shots"], 4)
+            self.assertGreaterEqual(analysis["overview"]["tracked_clubs"], 2)
 
 
 if __name__ == "__main__":

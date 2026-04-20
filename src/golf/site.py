@@ -157,6 +157,27 @@ def render_html() -> str:
         font-size: 0.88rem;
         color: var(--muted);
       }
+      .club-toggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .club-toggle {
+        padding: 5px 12px;
+        border-radius: 999px;
+        border: 1.5px solid transparent;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s, border-color 0.2s;
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--text);
+      }
+      .club-toggle.off {
+        opacity: 0.35;
+        border-color: transparent;
+      }
       @media (max-width: 700px) {
         main { padding: 28px 14px 48px; }
         .panel { padding: 16px; }
@@ -192,8 +213,16 @@ def render_html() -> str:
         </div>
         <div class="panel chart-wrap" style="grid-column: 1 / -1;">
           <h2>Dispersion map</h2>
+          <div class="club-toggles" id="dispersionToggles"></div>
           <div class="chart-canvas tall">
             <canvas id="dispersionChart"></canvas>
+          </div>
+        </div>
+        <div class="panel chart-wrap" style="grid-column: 1 / -1;">
+          <h2>Miss direction trend</h2>
+          <p style="margin:0 0 8px;font-size:0.88rem;color:var(--muted)">Positive = right miss &nbsp;|&nbsp; Negative = left miss</p>
+          <div class="chart-canvas">
+            <canvas id="missDirectionChart"></canvas>
           </div>
         </div>
       </section>
@@ -419,6 +448,7 @@ def render_html() -> str:
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
           scales: {
             x: { type: "linear", title: { display: true, text: "Offline / deviation (yds)" } },
             y: { type: "linear", title: { display: true, text: "Carry distance (yds)" } },
@@ -426,7 +456,69 @@ def render_html() -> str:
         },
       });
 
-      if (!sessionTrendChart || !clubBarChart || !dispersionChart) {
+      // ── Club toggle buttons for dispersion map ──────────────────────────
+      const togglesContainer = document.getElementById("dispersionToggles");
+      if (togglesContainer && dispersionChart) {
+        dispersionDatasets.forEach((ds, index) => {
+          const btn = document.createElement("button");
+          btn.className = "club-toggle";
+          btn.textContent = ds.label;
+          btn.style.borderColor = colors[index % colors.length];
+          btn.addEventListener("click", () => {
+            const meta = dispersionChart.getDatasetMeta(index);
+            meta.hidden = !meta.hidden;
+            btn.classList.toggle("off", meta.hidden);
+            dispersionChart.update();
+          });
+          togglesContainer.appendChild(btn);
+        });
+      }
+
+      // ── Miss direction trend chart ───────────────────────────────────────
+      const missDirectionChart = createChart("missDirectionChart", {
+        type: "bar",
+        data: {
+          labels: data.charts.timeline.labels,
+          datasets: [
+            {
+              label: "Avg lateral miss (yds)",
+              data: data.charts.timeline.miss_direction,
+              backgroundColor: data.charts.timeline.miss_direction.map((v) =>
+                v === null ? "transparent" : v > 0 ? "rgba(255, 123, 114, 0.7)" : "rgba(87, 181, 255, 0.7)"
+              ),
+              borderColor: data.charts.timeline.miss_direction.map((v) =>
+                v === null ? "transparent" : v > 0 ? "#ff7b72" : "#57b5ff"
+              ),
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const v = ctx.parsed.y;
+                  if (v === null) return "No data";
+                  return `${Math.abs(v).toFixed(1)} yds ${v > 0 ? "right" : "left"}`;
+                },
+              },
+            },
+          },
+          scales: {
+            y: {
+              title: { display: true, text: "Lateral deviation (yds)" },
+              ticks: {
+                callback: (v) => (v > 0 ? `+${v} R` : v < 0 ? `${v} L` : "0"),
+              },
+            },
+          },
+        },
+      });
+
+      if (!sessionTrendChart || !clubBarChart || !dispersionChart || !missDirectionChart) {
         showChartError("Some charts could not be initialized. Refresh after the page assets finish loading.");
       }
     </script>
