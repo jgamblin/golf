@@ -450,6 +450,152 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
     }
 
 
+def build_latest_session_deltas(session_summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    if len(session_summaries) < 2:
+        return {
+            "available": False,
+            "latest_label": None,
+            "previous_label": None,
+            "clubs": [],
+        }
+
+    previous = session_summaries[-2]
+    latest = session_summaries[-1]
+
+    previous_by_club = {club["club_label"]: club for club in previous.get("club_summaries", [])}
+    latest_by_club = {club["club_label"]: club for club in latest.get("club_summaries", [])}
+    shared_clubs = sorted(set(previous_by_club.keys()) & set(latest_by_club.keys()))
+
+    club_deltas: list[dict[str, Any]] = []
+    for club_label in shared_clubs:
+        prev = previous_by_club[club_label]
+        curr = latest_by_club[club_label]
+
+        prev_offline = first_value(prev.get("avg_total_deviation_distance"), prev.get("avg_carry_deviation_distance"))
+        curr_offline = first_value(curr.get("avg_total_deviation_distance"), curr.get("avg_carry_deviation_distance"))
+
+        club_deltas.append(
+            {
+                "club_label": club_label,
+                "latest_shot_count": curr.get("shot_count"),
+                "carry_delta": round_or_none(
+                    (curr.get("avg_carry_distance") - prev.get("avg_carry_distance"))
+                    if curr.get("avg_carry_distance") is not None and prev.get("avg_carry_distance") is not None
+                    else None,
+                    1,
+                ),
+                "smash_delta": round_or_none(
+                    (curr.get("avg_smash_factor") - prev.get("avg_smash_factor"))
+                    if curr.get("avg_smash_factor") is not None and prev.get("avg_smash_factor") is not None
+                    else None,
+                    2,
+                ),
+                "offline_delta": round_or_none(
+                    (curr_offline - prev_offline) if curr_offline is not None and prev_offline is not None else None,
+                    1,
+                ),
+                "latest_avg_carry": round_or_none(curr.get("avg_carry_distance")),
+                "latest_avg_smash": round_or_none(curr.get("avg_smash_factor"), 2),
+                "latest_avg_offline": round_or_none(curr_offline),
+            }
+        )
+
+    latest_label = latest.get("session_timestamp") or latest.get("source_file")
+    previous_label = previous.get("session_timestamp") or previous.get("source_file")
+    return {
+        "available": True,
+        "latest_label": latest_label,
+        "previous_label": previous_label,
+        "clubs": club_deltas,
+    }
+
+
+def build_next_session_worklist(
+    session_summaries: list[dict[str, Any]],
+    recommendations: list[dict[str, Any]],
+    deltas: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tasks: list[dict[str, Any]] = []
+
+    if deltas.get("available"):
+        for club_delta in deltas.get("clubs", []):
+            club_label = club_delta["club_label"]
+            carry_delta = club_delta.get("carry_delta")
+            smash_delta = club_delta.get("smash_delta")
+            offline_delta = club_delta.get("offline_delta")
+
+            if isinstance(carry_delta, (int, float)) and carry_delta <= -10:
+                tasks.append(
+                    {
+                        "priority": 95,
+                        "title": f"Rebuild {club_label} distance baseline",
+                        "focus_area": "distance control",
+                        "summary": f"Carry dropped by {abs(carry_delta):.1f} yds vs previous session.",
+                        "evidence": f"Carry delta: {carry_delta:+.1f} yds",
+                    }
+                )
+            if isinstance(smash_delta, (int, float)) and smash_delta <= -0.07:
+                tasks.append(
+                    {
+                        "priority": 92,
+                        "title": f"Prioritize centered contact with {club_label}",
+                        "focus_area": "strike quality",
+                        "summary": f"Smash factor trended down by {abs(smash_delta):.2f}.",
+                        "evidence": f"Smash delta: {smash_delta:+.2f}",
+                    }
+                )
+            if isinstance(offline_delta, (int, float)) and offline_delta >= 5:
+                tasks.append(
+                    {
+                        "priority": 85,
+                        "title": f"Tighten {club_label} start-line control",
+                        "focus_area": "directional control",
+                        "summary": f"Average offline miss widened by {offline_delta:.1f} yds.",
+                        "evidence": f"Offline delta: {offline_delta:+.1f} yds",
+                    }
+                )
+
+    if session_summaries:
+        latest_session = session_summaries[-1]
+        shot_count = latest_session.get("shot_count", 0) or 0
+        flagged = latest_session.get("flagged_shot_count", 0) or 0
+        if shot_count > 0:
+            flagged_rate = flagged / shot_count
+            if flagged_rate >= 0.08:
+                tasks.append(
+                    {
+                        "priority": 88,
+                        "title": "Check launch-monitor setup before warm-up",
+                        "focus_area": "data quality",
+                        "summary": "Too many zero-value shots can hide real progress.",
+                        "evidence": f"Flagged shots: {flagged}/{shot_count} ({flagged_rate * 100:.0f}%)",
+                    }
+                )
+
+    for recommendation in recommendations[:3]:
+        tasks.append(
+            {
+                "priority": int(recommendation.get("severity", 50)),
+                "title": recommendation.get("title", "Focus area for next session"),
+                "focus_area": recommendation.get("focus_area", "practice"),
+                "summary": recommendation.get("summary", ""),
+                "evidence": recommendation.get("evidence", ""),
+            }
+        )
+
+    deduped: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for task in sorted(tasks, key=lambda item: item.get("priority", 0), reverse=True):
+        title = str(task.get("title", "")).strip()
+        if not title or title in seen_titles:
+            continue
+        seen_titles.add(title)
+        deduped.append(task)
+        if len(deduped) >= 6:
+            break
+    return deduped
+
+
 def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
     enriched_sessions = attach_ml_scores(sessions)
 
@@ -478,6 +624,8 @@ def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
     session_summaries = [summarize_session(session, pop_weights) for session in enriched_sessions]
 
     recommendations = build_recommendations(session_summaries, club_summaries, all_shots)
+    latest_session_deltas = build_latest_session_deltas(session_summaries)
+    next_session_worklist = build_next_session_worklist(session_summaries, recommendations, latest_session_deltas)
 
     total_shots = sum(session["shot_count"] for session in session_summaries)
     avg_consistency = average([club.get("consistency_score") for club in club_summaries])
@@ -554,5 +702,7 @@ def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
             for club in club_summaries
         ],
         "recommendations": recommendations,
+        "latest_session_deltas": latest_session_deltas,
+        "next_session_worklist": next_session_worklist,
         "charts": chart_payload(session_summaries, club_summaries, enriched_sessions),
     }

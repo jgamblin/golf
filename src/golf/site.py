@@ -47,6 +47,14 @@ def render_html() -> str:
         gap: 20px;
         margin-bottom: 28px;
       }
+      .hero-header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
       .badge {
         display: inline-flex;
         padding: 6px 10px;
@@ -56,6 +64,21 @@ def render_html() -> str:
         font-size: 0.88rem;
         font-weight: 700;
         letter-spacing: 0.02em;
+      }
+      .hero-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .hero-title {
+        font-size: clamp(1.7rem, 4vw, 2.4rem);
+        letter-spacing: 0.01em;
+      }
+      .hero-sub {
+        margin-top: 6px;
       }
       .grid {
         display: grid;
@@ -93,6 +116,26 @@ def render_html() -> str:
         padding: 16px;
         border-radius: 14px;
         background: rgba(255, 255, 255, 0.03);
+      }
+      .next-session {
+        margin-bottom: 28px;
+      }
+      .next-session-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 10px;
+      }
+      .next-session-item {
+        border-left: 4px solid var(--good);
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .next-session-item h3 {
+        margin: 0 0 4px;
+        font-size: 1rem;
       }
       .recommendation-header {
         display: flex;
@@ -157,6 +200,13 @@ def render_html() -> str:
         font-size: 0.88rem;
         color: var(--muted);
       }
+      .delta {
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .delta-pos { color: var(--good); }
+      .delta-neg { color: var(--bad); }
+      .delta-neutral { color: var(--muted); }
       .club-toggles {
         display: flex;
         flex-wrap: wrap;
@@ -188,10 +238,14 @@ def render_html() -> str:
   <body>
     <main>
       <section class="hero">
-        <div class="badge">GitHub Pages range dashboard</div>
         <div class="panel">
-          <h1>Golf range analytics</h1>
+          <div class="hero-header">
+            <div class="badge">Range Performance Lab</div>
+            <div class="hero-chip" id="latest-session-chip"></div>
+          </div>
+          <h1 class="hero-title">Golf range analytics</h1>
           <p id="hero-text"></p>
+          <p class="hero-sub" id="hero-subtext"></p>
           <p class="small" id="generated-at"></p>
         </div>
       </section>
@@ -251,6 +305,29 @@ def render_html() -> str:
           <h2>Sessions</h2>
           <div class="grid" id="sessions"></div>
         </div>
+        <div class="panel">
+          <h2>Latest vs previous session</h2>
+          <p class="small" id="delta-caption"></p>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Club</th>
+                  <th>Shots</th>
+                  <th>Carry delta</th>
+                  <th>Smash delta</th>
+                  <th>Offline delta</th>
+                </tr>
+              </thead>
+              <tbody id="session-delta-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel next-session">
+        <h2>Work on next session</h2>
+        <div class="next-session-list" id="next-session-list"></div>
       </section>
 
       <section class="panel recommendations">
@@ -267,6 +344,19 @@ def render_html() -> str:
       const number = (value, digits = 1, suffix = "") => {
         if (value === null || value === undefined || Number.isNaN(value)) return "—";
         return `${Number(value).toFixed(digits)}${suffix}`;
+      };
+
+      const deltaHtml = (value, digits = 1, suffix = "", invertGood = false) => {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+          return '<span class="delta delta-neutral">—</span>';
+        }
+        const numeric = Number(value);
+        const isNeutral = Math.abs(numeric) < 0.001;
+        const direction = isNeutral ? "" : numeric > 0 ? " &uarr;" : " &darr;";
+        const isPositiveOutcome = isNeutral ? null : (invertGood ? numeric < 0 : numeric > 0);
+        const cls = isNeutral ? "delta-neutral" : (isPositiveOutcome ? "delta-pos" : "delta-neg");
+        const sign = numeric > 0 ? "+" : "";
+        return `<span class="delta ${cls}">${sign}${numeric.toFixed(digits)}${suffix}${direction}</span>`;
       };
 
       const showChartError = (message) => {
@@ -288,6 +378,14 @@ def render_html() -> str:
       document.getElementById("hero-text").textContent =
         `Tracking ${data.overview.total_sessions} session(s), ${data.overview.total_shots} shots, and ${data.overview.tracked_clubs} clubs. The recommendations below are generated from your uploaded CSVs.`;
       document.getElementById("generated-at").textContent = `Generated ${new Date(data.generated_at).toLocaleString()}`;
+
+      const latestSession = data.sessions.length ? data.sessions[data.sessions.length - 1] : null;
+      document.getElementById("latest-session-chip").textContent = latestSession && latestSession.session_timestamp
+        ? `Latest session ${new Date(latestSession.session_timestamp).toLocaleDateString()}`
+        : "Latest session unavailable";
+      document.getElementById("hero-subtext").textContent = data.next_session_worklist?.length
+        ? `${data.next_session_worklist.length} focus item(s) generated for your next practice block.`
+        : "Add another session to unlock a personalized next-session focus list.";
 
       const overviewItems = [
         ["Sessions", data.overview.total_sessions, 0],
@@ -359,6 +457,50 @@ def render_html() -> str:
         `;
         sessions.appendChild(card);
       });
+
+      const nextSessionList = document.getElementById("next-session-list");
+      if (!data.next_session_worklist || !data.next_session_worklist.length) {
+        const empty = document.createElement("p");
+        empty.className = "small";
+        empty.textContent = "No specific next-session priorities yet. Keep uploading sessions to build trend-aware tasks.";
+        nextSessionList.appendChild(empty);
+      } else {
+        data.next_session_worklist.forEach((item) => {
+          const card = document.createElement("div");
+          card.className = "next-session-item";
+          card.innerHTML = `
+            <h3>${item.title}</h3>
+            <p>${item.summary}</p>
+            <div class="small">${item.focus_area} • ${item.evidence}</div>
+          `;
+          nextSessionList.appendChild(card);
+        });
+      }
+
+      const deltaCaption = document.getElementById("delta-caption");
+      const deltaBody = document.getElementById("session-delta-body");
+      const deltas = data.latest_session_deltas;
+      if (!deltas || !deltas.available || !deltas.clubs.length) {
+        deltaCaption.textContent = "Need at least two sessions with overlapping clubs to show deltas.";
+        const row = document.createElement("tr");
+        row.innerHTML = `<td colspan="5" class="small">No comparable clubs available.</td>`;
+        deltaBody.appendChild(row);
+      } else {
+        const latestLabel = deltas.latest_label ? String(deltas.latest_label).slice(0, 10) : "latest";
+        const previousLabel = deltas.previous_label ? String(deltas.previous_label).slice(0, 10) : "previous";
+        deltaCaption.textContent = `${latestLabel} compared with ${previousLabel}`;
+        deltas.clubs.forEach((item) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${item.club_label}</td>
+            <td>${item.latest_shot_count ?? "-"}</td>
+            <td>${deltaHtml(item.carry_delta, 1, " yds")}</td>
+            <td>${deltaHtml(item.smash_delta, 2)}</td>
+            <td>${deltaHtml(item.offline_delta, 1, " yds", true)}</td>
+          `;
+          deltaBody.appendChild(row);
+        });
+      }
 
       const sessionTrendChart = createChart("sessionTrend", {
         type: "line",
