@@ -1,5 +1,7 @@
 # Golf Range Analytics — Garmin R10 Edition
 
+**[Live dashboard →](https://jgamblin.github.io/golf/)** &nbsp;|&nbsp; **[Source on GitHub →](https://github.com/jgamblin/golf)**
+
 A self-hosted analytics pipeline purpose-built for the **Garmin Approach R10** launch monitor and the **Garmin Golf** app.  Drop your range-session CSVs into `Data/`, run one command, and get a GitHub Pages dashboard with dispersion maps, consistency scores, gapping analysis, and personalised practice recommendations — all derived from your own R10 data.
 
 ---
