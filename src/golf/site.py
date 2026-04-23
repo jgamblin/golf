@@ -227,6 +227,43 @@ def render_html() -> str:
       }
       .severity { color: var(--warn); font-weight: 700; }
 
+      /* ── Tabs ────────────────────────────────────────── */
+      .tab-nav {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 24px;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0;
+      }
+      .tab-btn {
+        padding: 10px 22px;
+        background: none;
+        border: none;
+        border-bottom: 3px solid transparent;
+        color: var(--muted);
+        font-size: 0.97rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s;
+        margin-bottom: -1px;
+        border-radius: 6px 6px 0 0;
+        font-family: inherit;
+      }
+      .tab-btn:hover { color: var(--text); }
+      .tab-btn.active {
+        color: var(--accent);
+        border-bottom-color: var(--accent);
+        background: rgba(87, 181, 255, 0.06);
+      }
+      .tab-panel { display: none; }
+      .tab-panel.active { display: block; }
+
+      /* ── Coaching tab ───────────────────────────────── */
+      .coaching-grid {
+        display: grid;
+        gap: 24px;
+      }
+
       /* ── Misc ───────────────────────────────────────── */
       .small { font-size: 0.88rem; color: var(--muted); }
       .delta { font-weight: 700; white-space: nowrap; }
@@ -268,11 +305,14 @@ def render_html() -> str:
       <!-- ── Overview stats ─────────────────────────────── -->
       <section class="grid stats" id="overview"></section>
 
-      <!-- ── Next session focus (prominent, above charts) ── -->
-      <section class="panel next-session">
-        <h2>Next session focus</h2>
-        <div class="next-session-list" id="next-session-list"></div>
-      </section>
+      <!-- ── Tab navigation ────────────────────────────── -->
+      <nav class="tab-nav" role="tablist">
+        <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="tab-dashboard" id="btn-dashboard">Dashboard</button>
+        <button class="tab-btn" role="tab" aria-selected="false" aria-controls="tab-coaching" id="btn-coaching">Coaching</button>
+      </nav>
+
+      <!-- ══ DASHBOARD TAB ════════════════════════════════ -->
+      <div class="tab-panel active" id="tab-dashboard" role="tabpanel" aria-labelledby="btn-dashboard">
 
       <!-- ── Charts ────────────────────────────────────── -->
       <section class="grid charts">
@@ -377,11 +417,26 @@ def render_html() -> str:
         </div>
       </section>
 
-      <!-- ── Recommendations ───────────────────────────── -->
-      <section class="panel recommendations">
-        <h2>What to work on</h2>
-        <div class="recommendation-list" id="recommendations"></div>
-      </section>
+      </div>
+      <!-- ══ end DASHBOARD TAB ═══════════════════════════ -->
+
+      <!-- ══ COACHING TAB ═════════════════════════════════ -->
+      <div class="tab-panel" id="tab-coaching" role="tabpanel" aria-labelledby="btn-coaching">
+        <div class="coaching-grid">
+
+          <section class="panel next-session">
+            <h2>Next session focus</h2>
+            <div class="next-session-list" id="next-session-list"></div>
+          </section>
+
+          <section class="panel recommendations">
+            <h2>What to work on</h2>
+            <div class="recommendation-list" id="recommendations"></div>
+          </section>
+
+        </div>
+      </div>
+      <!-- ══ end COACHING TAB ═════════════════════════════ -->
 
     </main>
 
@@ -921,6 +976,19 @@ def render_html() -> str:
       if (!sessionTrendChart || !clubBarChart || !dispersionChart || !missDirectionChart) {
         showChartError("Some charts could not be initialized. Refresh after the page assets finish loading.");
       }
+
+      // ── Tab switching ─────────────────────────────────────────────────
+      const tabBtns = document.querySelectorAll(".tab-btn");
+      const tabPanels = document.querySelectorAll(".tab-panel");
+      tabBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          tabBtns.forEach((b) => { b.classList.remove("active"); b.setAttribute("aria-selected", "false"); });
+          tabPanels.forEach((p) => p.classList.remove("active"));
+          btn.classList.add("active");
+          btn.setAttribute("aria-selected", "true");
+          document.getElementById(btn.getAttribute("aria-controls")).classList.add("active");
+        });
+      });
     </script>
   </body>
 </html>
