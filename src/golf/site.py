@@ -200,7 +200,27 @@ def render_html() -> str:
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid var(--border);
       }
-      .session-date { font-size: 1.05rem; font-weight: 700; margin-bottom: 10px; }
+      .session-date { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+      .session-rating-row {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-bottom: 10px;
+        font-size: 0.85rem;
+      }
+      .session-rating-label {
+        color: var(--muted);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 600;
+      }
+      .session-rating-value {
+        font-size: 1.45rem;
+        font-weight: 800;
+        line-height: 1;
+      }
+      .session-rating-trend { font-weight: 700; font-size: 0.82rem; }
       .session-stats {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
@@ -528,6 +548,7 @@ def render_html() -> str:
       }
 
       // ── Session trend chart ───────────────────────────────────────────
+      const hasRatingData = data.charts.timeline.session_rating && data.charts.timeline.session_rating.some((v) => v != null);
       const sessionTrendChart = createChart("sessionTrend", {
         type: "line",
         data: {
@@ -549,6 +570,17 @@ def render_html() -> str:
               tension: 0.3,
               yAxisID: "y1",
             },
+            ...(hasRatingData ? [{
+              label: "Session rating (0–100)",
+              data: data.charts.timeline.session_rating,
+              borderColor: "#ffb454",
+              backgroundColor: "rgba(255, 180, 84, 0.12)",
+              borderDash: [5, 3],
+              tension: 0.3,
+              yAxisID: "y2",
+              pointRadius: 5,
+              pointBackgroundColor: "#ffb454",
+            }] : []),
           ],
         },
         options: {
@@ -558,6 +590,17 @@ def render_html() -> str:
           scales: {
             y: { beginAtZero: false, position: "left" },
             y1: { beginAtZero: false, position: "right", grid: { drawOnChartArea: false } },
+            ...(hasRatingData ? {
+              y2: {
+                beginAtZero: true,
+                min: 0,
+                max: 100,
+                position: "right",
+                grid: { drawOnChartArea: false },
+                ticks: { callback: (v) => `${v}` },
+                title: { display: true, text: "Rating" },
+              },
+            } : {}),
           },
         },
       });
@@ -893,8 +936,34 @@ def render_html() -> str:
         const dateStr = session.session_timestamp
           ? new Date(session.session_timestamp).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
           : session.source_file;
+
+        const ratingVal = session.session_rating;
+        const ratingTrend = session.session_rating_trend;
+        const ratingColor = ratingVal == null ? "var(--muted)"
+          : ratingVal >= 70 ? "var(--good)"
+          : ratingVal >= 50 ? "var(--warn)"
+          : "var(--bad)";
+        const ratingDisplay = ratingVal == null
+          ? `<span style="color:var(--muted)">—</span>`
+          : `<span class="session-rating-value" style="color:${ratingColor}">${ratingVal.toFixed(0)}</span>`;
+        let trendHtml = "";
+        if (ratingTrend != null) {
+          if (ratingTrend > 0.05) {
+            trendHtml = `<span class="session-rating-trend delta-pos">&#9650; ${ratingTrend.toFixed(1)}</span>`;
+          } else if (ratingTrend < -0.05) {
+            trendHtml = `<span class="session-rating-trend delta-neg">&#9660; ${Math.abs(ratingTrend).toFixed(1)}</span>`;
+          } else {
+            trendHtml = `<span class="session-rating-trend delta-neutral">&rarr;</span>`;
+          }
+        }
+
         card.innerHTML = `
           <div class="session-date">${dateStr}</div>
+          <div class="session-rating-row">
+            <span class="session-rating-label">Rating</span>
+            ${ratingDisplay}
+            ${trendHtml}
+          </div>
           <div class="session-stats">
             <div class="session-stat">
               <span class="session-stat-value">${session.shot_count}</span>
