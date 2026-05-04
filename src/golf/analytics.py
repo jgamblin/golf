@@ -403,6 +403,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
     carry_trend = []
     smash_trend = []
     offline_trend = []
+    rating_trend = []
     for session in session_summaries:
         stamp = session.get("session_timestamp")
         label = stamp[:10] if stamp else session["source_file"]
@@ -410,6 +411,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
         carry_trend.append(round_or_none(session.get("avg_carry_distance")))
         smash_trend.append(round_or_none(session.get("avg_smash_factor"), 2))
         offline_trend.append(round_or_none(session.get("avg_offline_distance")))
+        rating_trend.append(round_or_none(session.get("session_rating")))
 
     club_labels = [club["club_label"] for club in club_summaries]
     dispersion = []
@@ -439,6 +441,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
             "avg_smash_factor": smash_trend,
             "avg_offline_distance": offline_trend,
             "miss_direction": miss_trend,
+            "session_rating": rating_trend,
         },
         "clubs": {
             "labels": club_labels,
@@ -596,6 +599,94 @@ def build_next_session_worklist(
     return deduped
 
 
+def score_sessions(session_summaries: list[dict[str, Any]]) -> list[float | None]:
+    """Return a 0-100 performance rating for each session, normalised across all sessions.
+
+    The rating blends four signals with fixed weights:
+
+    * Average consistency score  (40 %) — mean of per-club consistency scores
+    * Average smash factor        (25 %) — higher is better
+    * Average offline distance    (20 %) — absolute value, lower is better
+    * Outlier rate                (15 %) — lower is better
+
+    Each metric is min-max normalised to [0, 100] relative to the full set of
+    sessions, so the best-ever session for each metric scores 100 and the worst
+    scores 0.  When a metric is unavailable for a session its weight is
+    redistributed to the remaining signals.
+
+    With fewer than two sessions every score is ``None`` because a single data
+    point cannot be ranked relative to itself.
+    """
+    if len(session_summaries) < 2:
+        return [None] * len(session_summaries)
+
+    WEIGHTS: dict[str, float] = {
+        "consistency": 0.40,
+        "smash": 0.25,
+        "offline": 0.20,
+        "outlier": 0.15,
+    }
+
+    # ── Collect raw metric values per session ────────────────────────────────
+    raw: dict[str, list[float | None]] = {key: [] for key in WEIGHTS}
+    for session in session_summaries:
+        club_scores = [
+            float(club["consistency_score"])
+            for club in session.get("club_summaries", [])
+            if isinstance(club.get("consistency_score"), (int, float))
+        ]
+        raw["consistency"].append(sum(club_scores) / len(club_scores) if club_scores else None)
+        raw["smash"].append(
+            float(session["avg_smash_factor"])
+            if isinstance(session.get("avg_smash_factor"), (int, float))
+            else None
+        )
+        offline = session.get("avg_offline_distance")
+        raw["offline"].append(abs(float(offline)) if isinstance(offline, (int, float)) else None)
+        outlier = session.get("outlier_rate")
+        raw["outlier"].append(float(outlier) if isinstance(outlier, (int, float)) else None)
+
+    # ── Min-max normalise each metric to [0, 100] ────────────────────────────
+    def _normalize(values: list[float | None], invert: bool = False) -> list[float | None]:
+        usable = [v for v in values if v is not None]
+        if len(usable) < 2:
+            return [50.0 if v is not None else None for v in values]
+        lo, hi = min(usable), max(usable)
+        if hi == lo:
+            return [50.0 if v is not None else None for v in values]
+        normed: list[float | None] = []
+        for v in values:
+            if v is None:
+                normed.append(None)
+                continue
+            scaled = (v - lo) / (hi - lo) * 100.0
+            normed.append(100.0 - scaled if invert else scaled)
+        return normed
+
+    normed: dict[str, list[float | None]] = {
+        "consistency": _normalize(raw["consistency"], invert=False),
+        "smash":       _normalize(raw["smash"],       invert=False),
+        "offline":     _normalize(raw["offline"],      invert=True),
+        "outlier":     _normalize(raw["outlier"],      invert=True),
+    }
+
+    # ── Weighted combination ──────────────────────────────────────────────────
+    ratings: list[float | None] = []
+    for i in range(len(session_summaries)):
+        weighted_sum = 0.0
+        total_weight = 0.0
+        for key, weight in WEIGHTS.items():
+            value = normed[key][i]
+            if value is not None:
+                weighted_sum += value * weight
+                total_weight += weight
+        if total_weight == 0.0:
+            ratings.append(None)
+        else:
+            ratings.append(round(weighted_sum / total_weight, 1))
+    return ratings
+
+
 def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
     enriched_sessions = attach_ml_scores(sessions)
 
@@ -622,6 +713,18 @@ def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
     ]
 
     session_summaries = [summarize_session(session, pop_weights) for session in enriched_sessions]
+
+    # Compute per-session ratings (requires all session summaries to be ready).
+    session_ratings = score_sessions(session_summaries)
+    for i, summary in enumerate(session_summaries):
+        summary["session_rating"] = session_ratings[i]
+        prev_rating = session_ratings[i - 1] if i > 0 else None
+        curr_rating = session_ratings[i]
+        summary["session_rating_trend"] = (
+            round(curr_rating - prev_rating, 1)
+            if curr_rating is not None and prev_rating is not None
+            else None
+        )
 
     recommendations = build_recommendations(session_summaries, club_summaries, all_shots)
     latest_session_deltas = build_latest_session_deltas(session_summaries)
@@ -650,6 +753,8 @@ def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
                 "avg_ball_speed": round_or_none(session.get("avg_ball_speed")),
                 "avg_offline_distance": round_or_none(session.get("avg_offline_distance")),
                 "outlier_rate": round_or_none(session.get("outlier_rate") * 100 if session.get("outlier_rate") is not None else None),
+                "session_rating": session.get("session_rating"),
+                "session_rating_trend": session.get("session_rating_trend"),
                 "club_summaries": [
                     {
                         **club,

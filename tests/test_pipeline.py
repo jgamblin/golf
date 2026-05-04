@@ -11,6 +11,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from golf.cli import build_command
 from golf.ingest import parse_float, parse_timestamp
+from golf.analytics import score_sessions
 
 
 SAMPLE_CSV = """Date,Player,Club Name,Brand/Model,Club Type,Club Speed,Attack Angle,Club Path,Club Face,Face to Path,Ball Speed,Smash Factor,Launch Angle,Launch Direction,Backspin,Sidespin,Spin Rate,Spin Rate Type,Spin Axis,Apex Height,Carry Distance,Carry Deviation Angle,Carry Deviation Distance,Total Distance,Total Deviation Angle,Total Deviation Distance,Target Total Distance,Target Carry Distance,Note,Tag,Air Density,Temperature,Air Pressure,Relative Humidity,Back Stroke Length,Target Backswing Time,Target Downswing Time,Forward Stroke Length,Backswing Time,Downswing Time,Target Tempo,Swing Tempo
@@ -236,6 +237,83 @@ class TestGarminR10Ingestion(unittest.TestCase):
             analysis = build_command(data_dir, output_dir)
             self.assertGreaterEqual(analysis["overview"]["total_shots"], 4)
             self.assertGreaterEqual(analysis["overview"]["tracked_clubs"], 2)
+
+
+class TestScoreSessions(unittest.TestCase):
+    """Unit tests for the session performance rating function."""
+
+    def _make_session(
+        self,
+        avg_smash: float | None,
+        avg_offline: float | None,
+        outlier_rate: float | None,
+        consistency: float | None,
+    ) -> dict:
+        club = {"consistency_score": consistency} if consistency is not None else {}
+        return {
+            "avg_smash_factor": avg_smash,
+            "avg_offline_distance": avg_offline,
+            "outlier_rate": outlier_rate,
+            "club_summaries": [club] if club else [],
+        }
+
+    def test_single_session_returns_none(self) -> None:
+        result = score_sessions([self._make_session(1.3, 5.0, 0.1, 70.0)])
+        self.assertEqual(result, [None])
+
+    def test_empty_list_returns_empty(self) -> None:
+        self.assertEqual(score_sessions([]), [])
+
+    def test_two_sessions_return_two_values(self) -> None:
+        sessions = [
+            self._make_session(1.25, 8.0, 0.2, 60.0),
+            self._make_session(1.35, 4.0, 0.1, 80.0),
+        ]
+        result = score_sessions(sessions)
+        self.assertEqual(len(result), 2)
+        self.assertIsNotNone(result[0])
+        self.assertIsNotNone(result[1])
+
+    def test_better_session_has_higher_rating(self) -> None:
+        # Second session has better smash, less offline, lower outlier rate,
+        # higher consistency — it should always score higher.
+        sessions = [
+            self._make_session(1.20, 12.0, 0.30, 55.0),
+            self._make_session(1.40, 2.0, 0.05, 90.0),
+        ]
+        result = score_sessions(sessions)
+        self.assertGreater(result[1], result[0])
+
+    def test_ratings_in_zero_to_hundred_range(self) -> None:
+        sessions = [
+            self._make_session(1.30, 6.0, 0.15, 70.0),
+            self._make_session(1.38, 3.0, 0.08, 85.0),
+            self._make_session(1.22, 10.0, 0.25, 50.0),
+        ]
+        result = score_sessions(sessions)
+        for rating in result:
+            if rating is not None:
+                self.assertGreaterEqual(rating, 0.0)
+                self.assertLessEqual(rating, 100.0)
+
+    def test_identical_sessions_get_midpoint_rating(self) -> None:
+        session = self._make_session(1.30, 5.0, 0.10, 70.0)
+        result = score_sessions([session, session])
+        # When all values are equal each metric is clamped to 50.
+        for rating in result:
+            self.assertAlmostEqual(rating, 50.0, places=1)
+
+    def test_session_rating_included_in_pipeline_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_dir = root / "Data"
+            output_dir = root / "output" / "site"
+            data_dir.mkdir(parents=True)
+            (data_dir / "session.csv").write_text(SAMPLE_CSV, encoding="utf-8")
+            analysis = build_command(data_dir, output_dir)
+            # With one session, rating should be None (not enough data to rank).
+            self.assertIn("session_rating", analysis["sessions"][0])
+            self.assertIsNone(analysis["sessions"][0]["session_rating"])
 
 
 if __name__ == "__main__":
