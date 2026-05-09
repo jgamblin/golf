@@ -423,5 +423,27 @@ class TestBuildAnalysisForecasts(unittest.TestCase):
                 self.assertIn("session_index", pt)
 
 
+class TestPredictionsPersistence(unittest.TestCase):
+    def _three_csv_dir(self, tmp: Path) -> Path:
+        data_dir = tmp / "Data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        for name in ["s1.csv", "s2.csv", "s3.csv"]:
+            (data_dir / name).write_text(SAMPLE_CSV, encoding="utf-8")
+        return data_dir
+
+    def test_predictions_json_written(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            build_command(self._three_csv_dir(Path(tmp)), out)
+            self.assertTrue((out / "predictions.json").exists())
+
+    def test_previous_forecasts_loaded_on_second_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            build_command(self._three_csv_dir(Path(tmp)), out)
+            analysis2 = build_command(self._three_csv_dir(Path(tmp)), out)
+            self.assertIn("previous_forecasts", analysis2)
+
+
 if __name__ == "__main__":
     unittest.main()

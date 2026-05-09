@@ -11,11 +11,24 @@ from .site import write_site
 
 def build_command(data_dir: Path, output_dir: Path) -> dict:
     sessions = load_sessions(data_dir)
-    analysis = build_analysis(sessions)
+
+    predictions_path = output_dir / "predictions.json"
+    previous_forecasts: dict | None = None
+    if predictions_path.exists():
+        try:
+            previous_forecasts = json.loads(predictions_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            previous_forecasts = None
+
+    analysis = build_analysis(sessions, previous_forecasts)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "analysis.json").write_text(json.dumps(analysis, indent=2), encoding="utf-8")
     write_site(analysis, output_dir)
+
+    if analysis.get("forecasts", {}).get("per_club"):
+        predictions_path.write_text(json.dumps(analysis["forecasts"], indent=2), encoding="utf-8")
+
     return analysis
 
 
