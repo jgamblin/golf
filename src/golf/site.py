@@ -274,19 +274,21 @@ def render_html() -> str:
       /* ── Recommendations ────────────────────────────── */
       .recommendations { margin-bottom: 28px; }
       .recommendation-list { display: grid; gap: 12px; }
-      .recommendation {
-        border-left: 4px solid var(--warn);
-        padding: 16px;
-        border-radius: 14px;
-        background: rgba(255, 255, 255, 0.03);
-      }
+      .recommendation { padding: 14px 16px; border-radius: 12px; margin-bottom: 2px; }
+      .rec-high { border-left: 4px solid #1E340A; background: rgba(30,52,10,0.07); }
+      .rec-med  { border-left: 4px solid #408114; background: rgba(64,129,20,0.08); }
+      .rec-low  { border-left: 4px solid #4D6E24; background: rgba(77,110,36,0.07); }
       .recommendation-header {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        align-items: baseline;
+        display: flex; justify-content: space-between; gap: 12px;
+        align-items: baseline; margin-bottom: 4px;
       }
-      .severity { color: var(--warn); font-weight: 700; }
+      .severity-badge {
+        display: inline-block; padding: 2px 9px; border-radius: 999px;
+        font-size: 0.73rem; font-weight: 700; color: #fff; white-space: nowrap;
+      }
+      .badge-high { background: #1E340A; }
+      .badge-med  { background: #408114; }
+      .badge-low  { background: #4D6E24; }
 
       /* ── Tabs ────────────────────────────────────────── */
       .tab-nav {
@@ -1096,16 +1098,28 @@ def render_html() -> str:
         recommendations.appendChild(empty);
       } else {
         data.recommendations.forEach((item) => {
+          const label = item.severity_label || (item.severity >= 60 ? "High" : item.severity >= 30 ? "Medium" : "Low");
+          const recCls = label === "High" ? "rec-high" : label === "Medium" ? "rec-med" : "rec-low";
+          const badgeCls = label === "High" ? "badge-high" : label === "Medium" ? "badge-med" : "badge-low";
           const div = document.createElement("div");
-          div.className = "recommendation";
-          div.innerHTML = `
-            <div class="recommendation-header">
-              <h3>${item.title}</h3>
-              <div class="severity">Severity ${item.severity}</div>
-            </div>
-            <p>${item.summary}</p>
-            <div class="small">${item.focus_area} &bull; ${item.evidence}</div>
-          `;
+          div.className = `recommendation ${recCls}`;
+          const header = document.createElement("div");
+          header.className = "recommendation-header";
+          const h3 = document.createElement("h3");
+          h3.textContent = item.title;
+          const badge = document.createElement("span");
+          badge.className = `severity-badge ${badgeCls}`;
+          badge.textContent = label;
+          header.appendChild(h3);
+          header.appendChild(badge);
+          const body = document.createElement("p");
+          body.textContent = item.summary;
+          const meta = document.createElement("div");
+          meta.className = "small";
+          meta.textContent = `${item.focus_area} · ${item.evidence}`;
+          div.appendChild(header);
+          div.appendChild(body);
+          div.appendChild(meta);
           recommendations.appendChild(div);
         });
       }
