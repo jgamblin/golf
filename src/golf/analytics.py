@@ -766,7 +766,26 @@ def potential_gap_pct(club_summary: dict[str, Any]) -> float | None:
     return round(min(100.0, float(avg) / float(potential) * 100.0), 1)
 
 
-def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
+def _club_velocity(club_label: str, session_summaries: list[dict[str, Any]], n: int = 3) -> str:
+    values: list[float] = []
+    for session in session_summaries[-n:]:
+        for club_sum in session.get("club_summaries", []):
+            if club_sum["club_label"] == club_label:
+                carry = club_sum.get("avg_carry_distance")
+                if isinstance(carry, (int, float)):
+                    values.append(float(carry))
+                break
+    if len(values) < 2:
+        return "Holding steady"
+    fit = linear_regression(list(range(len(values))), values)
+    if fit.slope > 1.5:
+        return "Most improved"
+    if fit.slope < -1.5:
+        return "Work needed"
+    return "Holding steady"
+
+
+def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str, Any] | None = None) -> dict[str, Any]:
     enriched_sessions = attach_ml_scores(sessions)
 
     # Collect all shots once so weights and benchmarks can use the full history.
@@ -804,6 +823,8 @@ def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
             if curr_rating is not None and prev_rating is not None
             else None
         )
+
+    forecasts = build_forecasts(session_summaries)
 
     recommendations = build_recommendations(session_summaries, club_summaries, all_shots)
     latest_session_deltas = build_latest_session_deltas(session_summaries)
@@ -882,9 +903,13 @@ def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:
                 "tempo_stddev": round_or_none(club.get("tempo_stddev"), 2),
                 "consistency_score": round_or_none(club.get("consistency_score")),
                 "outlier_rate": round_or_none(club.get("outlier_rate") * 100 if club.get("outlier_rate") is not None else None),
+                "improvement_velocity": _club_velocity(club["club_label"], session_summaries),
+                "potential_gap_pct": potential_gap_pct(club),
             }
             for club in club_summaries
         ],
+        "forecasts": forecasts,
+        "previous_forecasts": previous_forecasts or {},
         "recommendations": recommendations,
         "latest_session_deltas": latest_session_deltas,
         "next_session_worklist": next_session_worklist,

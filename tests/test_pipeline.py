@@ -395,5 +395,33 @@ class TestRecommendationLabels(unittest.TestCase):
                 self.assertNotIn(" bad ", f" {rec.get(field, '').lower()} ")
 
 
+class TestBuildAnalysisForecasts(unittest.TestCase):
+    def _three_csv_dir(self, tmp: Path) -> Path:
+        data_dir = tmp / "Data"
+        data_dir.mkdir(parents=True)
+        for name in ["s1.csv", "s2.csv", "s3.csv"]:
+            (data_dir / name).write_text(SAMPLE_CSV, encoding="utf-8")
+        return data_dir
+
+    def test_forecasts_key_in_analysis(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            analysis = build_command(self._three_csv_dir(Path(tmp)), Path(tmp) / "out")
+            self.assertIn("forecasts", analysis)
+            self.assertIn("per_club", analysis["forecasts"])
+
+    def test_clubs_have_velocity_and_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            analysis = build_command(self._three_csv_dir(Path(tmp)), Path(tmp) / "out")
+            for club in analysis["clubs"]:
+                self.assertIn("improvement_velocity", club)
+                self.assertIn("potential_gap_pct", club)
+
+    def test_dispersion_has_session_index(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            analysis = build_command(self._three_csv_dir(Path(tmp)), Path(tmp) / "out")
+            for pt in analysis["charts"]["dispersion"]:
+                self.assertIn("session_index", pt)
+
+
 if __name__ == "__main__":
     unittest.main()
