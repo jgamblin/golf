@@ -230,17 +230,35 @@ def render_html() -> str:
       th { color: var(--muted); font-weight: 600; }
 
       /* ── Session cards ──────────────────────────────── */
-      .sessions-grid {
+      .sessions-list { display: flex; flex-direction: column; gap: 0; }
+      .session-row {
         display: grid;
-        gap: 14px;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: 1fr auto auto auto auto auto auto auto;
+        align-items: center;
+        gap: 0 16px;
+        padding: 12px 4px;
+        border-bottom: 1px solid var(--border);
       }
-      .session-card {
-        padding: 16px;
-        border-radius: 14px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid var(--border);
+      .session-row:last-child { border-bottom: none; }
+      .session-row:hover { background: rgba(64,129,20,0.04); border-radius: 8px; }
+      .session-row-date { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+      .session-row-rating { display: flex; align-items: baseline; gap: 5px; }
+      .session-row-rating-val { font-size: 1.3rem; font-weight: 800; line-height: 1; }
+      .session-row-stat { text-align: right; }
+      .session-row-stat-val { font-size: 0.95rem; font-weight: 700; color: var(--text); display: block; }
+      .session-row-stat-lbl { font-size: 0.68rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+      .session-pagination {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
       }
+      .session-pagination button {
+        background: none; border: 1.5px solid var(--border); border-radius: 8px;
+        padding: 5px 14px; font-size: 0.85rem; font-weight: 600; color: var(--muted);
+        cursor: pointer; font-family: inherit; transition: color 0.15s, border-color 0.15s;
+      }
+      .session-pagination button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+      .session-pagination button:disabled { opacity: 0.35; cursor: default; }
+      .session-pagination-info { font-size: 0.82rem; color: var(--muted); }
       .session-date { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
       .session-rating-row {
         display: flex;
@@ -506,7 +524,12 @@ def render_html() -> str:
         </div>
         <div class="panel">
           <h2>Sessions</h2>
-          <div class="sessions-grid" id="sessions"></div>
+          <div class="sessions-list" id="sessions"></div>
+          <div class="session-pagination" id="sessions-pagination" style="display:none;">
+            <button id="sessions-prev">&#8592; Prev</button>
+            <span class="session-pagination-info" id="sessions-page-info"></span>
+            <button id="sessions-next">Next &#8594;</button>
+          </div>
         </div>
         <div class="panel">
           <h2>Latest vs previous session</h2>
@@ -1118,71 +1141,97 @@ def render_html() -> str:
         if (btn) showClubDetail(btn.dataset.club);
       });
 
-      // ── Session cards (date + structured stats) ───────────────────────
-      const sessions = document.getElementById("sessions");
-      data.sessions.forEach((session) => {
-        const card = document.createElement("div");
-        card.className = "session-card";
-        const dateStr = session.session_timestamp
-          ? new Date(session.session_timestamp).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
-          : session.source_file;
+      // ── Sessions list (paginated, 5 per page, newest first) ──────────────
+      (() => {
+        const PAGE_SIZE = 5;
+        const allSessions = [...data.sessions].reverse();
+        let page = 0;
+        const container = document.getElementById("sessions");
+        const pagination = document.getElementById("sessions-pagination");
+        const pageInfo = document.getElementById("sessions-page-info");
+        const prevBtn = document.getElementById("sessions-prev");
+        const nextBtn = document.getElementById("sessions-next");
 
-        const ratingVal = session.session_rating;
-        const ratingTrend = session.session_rating_trend;
-        const ratingColor = ratingVal == null ? "var(--muted)"
-          : ratingVal >= 70 ? "var(--good)"
-          : ratingVal >= 50 ? "var(--warn)"
-          : "var(--bad)";
-        const ratingDisplay = ratingVal == null
-          ? `<span style="color:var(--muted)">—</span>`
-          : `<span class="session-rating-value" style="color:${ratingColor}">${ratingVal.toFixed(0)}</span>`;
-        let trendHtml = "";
-        if (ratingTrend != null) {
-          if (ratingTrend > 0.05) {
-            trendHtml = `<span class="session-rating-trend delta-pos">&#9650; ${ratingTrend.toFixed(1)}</span>`;
-          } else if (ratingTrend < -0.05) {
-            trendHtml = `<span class="session-rating-trend delta-neg">&#9660; ${Math.abs(ratingTrend).toFixed(1)}</span>`;
-          } else {
-            trendHtml = `<span class="session-rating-trend delta-neutral">&rarr;</span>`;
+        function statCell(val, lbl) {
+          const el = document.createElement("div");
+          el.className = "session-row-stat";
+          const v = document.createElement("span");
+          v.className = "session-row-stat-val";
+          v.textContent = val;
+          const l = document.createElement("span");
+          l.className = "session-row-stat-lbl";
+          l.textContent = lbl;
+          el.appendChild(v);
+          el.appendChild(l);
+          return el;
+        }
+
+        function renderPage() {
+          container.innerHTML = "";
+          const start = page * PAGE_SIZE;
+          const slice = allSessions.slice(start, start + PAGE_SIZE);
+          slice.forEach((session) => {
+            const dateStr = session.session_timestamp
+              ? new Date(session.session_timestamp).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+              : session.source_file;
+            const ratingVal = session.session_rating;
+            const ratingTrend = session.session_rating_trend;
+            const ratingColor = ratingVal == null ? "var(--muted)"
+              : ratingVal >= 70 ? "var(--good)"
+              : ratingVal >= 50 ? "var(--muted)"
+              : "var(--text)";
+
+            const row = document.createElement("div");
+            row.className = "session-row";
+
+            const datEl = document.createElement("div");
+            datEl.className = "session-row-date";
+            datEl.textContent = dateStr;
+
+            const ratEl = document.createElement("div");
+            ratEl.className = "session-row-rating";
+            const ratLbl = document.createElement("span");
+            ratLbl.className = "session-row-stat-lbl";
+            ratLbl.textContent = "Rating";
+            const ratVal = document.createElement("span");
+            ratVal.className = "session-row-rating-val";
+            ratVal.style.color = ratingColor;
+            ratVal.textContent = ratingVal != null ? ratingVal.toFixed(0) : "—";
+            ratEl.appendChild(ratLbl);
+            ratEl.appendChild(ratVal);
+            if (ratingTrend != null && Math.abs(ratingTrend) > 0.05) {
+              const trendEl = document.createElement("span");
+              trendEl.style.fontSize = "0.8rem";
+              trendEl.style.fontWeight = "600";
+              trendEl.style.color = ratingTrend > 0 ? "var(--good)" : "var(--muted)";
+              trendEl.textContent = (ratingTrend > 0 ? "▲ " : "▼ ") + Math.abs(ratingTrend).toFixed(1);
+              ratEl.appendChild(trendEl);
+            }
+
+            row.appendChild(datEl);
+            row.appendChild(ratEl);
+            row.appendChild(statCell(session.shot_count, "Shots"));
+            row.appendChild(statCell(session.club_count, "Clubs"));
+            row.appendChild(statCell(number(session.avg_carry_distance, 1), "Carry"));
+            row.appendChild(statCell(number(session.avg_smash_factor, 2), "Smash"));
+            row.appendChild(statCell(number(session.avg_offline_distance, 1), "Offline"));
+            row.appendChild(statCell(number(session.outlier_rate, 0, "%"), "Outliers"));
+            container.appendChild(row);
+          });
+
+          const totalPages = Math.ceil(allSessions.length / PAGE_SIZE);
+          if (totalPages > 1) {
+            pagination.style.display = "flex";
+            pageInfo.textContent = `${start + 1}–${Math.min(start + PAGE_SIZE, allSessions.length)} of ${allSessions.length}`;
+            prevBtn.disabled = page === 0;
+            nextBtn.disabled = page >= totalPages - 1;
           }
         }
 
-        card.innerHTML = `
-          <div class="session-date">${dateStr}</div>
-          <div class="session-rating-row">
-            <span class="session-rating-label">Rating</span>
-            ${ratingDisplay}
-            ${trendHtml}
-          </div>
-          <div class="session-stats">
-            <div class="session-stat">
-              <span class="session-stat-value">${session.shot_count}</span>
-              <span class="session-stat-label">Shots</span>
-            </div>
-            <div class="session-stat">
-              <span class="session-stat-value">${session.club_count}</span>
-              <span class="session-stat-label">Clubs</span>
-            </div>
-            <div class="session-stat">
-              <span class="session-stat-value">${number(session.avg_carry_distance, 1)}</span>
-              <span class="session-stat-label">Avg carry</span>
-            </div>
-            <div class="session-stat">
-              <span class="session-stat-value">${number(session.avg_smash_factor, 2)}</span>
-              <span class="session-stat-label">Smash</span>
-            </div>
-            <div class="session-stat">
-              <span class="session-stat-value">${number(session.avg_offline_distance, 1)}</span>
-              <span class="session-stat-label">Avg offline</span>
-            </div>
-            <div class="session-stat">
-              <span class="session-stat-value">${number(session.outlier_rate, 0, "%")}</span>
-              <span class="session-stat-label">Outliers</span>
-            </div>
-          </div>
-        `;
-        sessions.appendChild(card);
-      });
+        prevBtn.addEventListener("click", () => { page--; renderPage(); });
+        nextBtn.addEventListener("click", () => { page++; renderPage(); });
+        renderPage();
+      })();
 
       // ── Session deltas ────────────────────────────────────────────────
       const deltaCaption = document.getElementById("delta-caption");
