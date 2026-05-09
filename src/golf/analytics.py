@@ -223,6 +223,14 @@ def summarize_session(session: dict[str, Any], weights: dict[str, float] | None 
     }
 
 
+def _severity_label(severity: int) -> str:
+    if severity >= 60:
+        return "High"
+    if severity >= 30:
+        return "Medium"
+    return "Low"
+
+
 def build_recommendations(
     session_summaries: list[dict[str, Any]],
     club_summaries: list[dict[str, Any]],
@@ -238,13 +246,14 @@ def build_recommendations(
         if bias is not None and abs(bias) >= 10:
             recommendations.append(
                 {
-                    "title": f"Reduce your {club_label} {signed_direction_label(bias)} miss",
+                    "title": f"Improve {club_label} start-line control",
                     "focus_area": "directional control",
-                    "severity": min(100, round(abs(bias) * 2.5)),
+                    "severity": min(100, round(abs(bias) * 4.0)),
+                    "severity_label": _severity_label(min(100, round(abs(bias) * 4.0))),
                     "club_label": club_label,
                     "summary": (
-                        f"Average dispersion is {abs(bias):.1f} yards {signed_direction_label(bias)}. "
-                        "Practice start-line control and face delivery with alignment-stick work."
+                        f"Average offline is {abs(bias):.1f} yards {signed_direction_label(bias)}. "
+                        "Work on start-line control with alignment-stick drills."
                     ),
                     "evidence": f"Average deviation: {bias:.1f} yds",
                 }
@@ -255,9 +264,10 @@ def build_recommendations(
         if face_std is not None and face_std >= 6:
             recommendations.append(
                 {
-                    "title": f"Tighten {club_label} face-to-path variance",
+                    "title": f"Dial in {club_label} face-to-path",
                     "focus_area": "clubface control",
                     "severity": min(100, round(face_std * 9)),
+                    "severity_label": _severity_label(min(100, round(face_std * 9))),
                     "club_label": club_label,
                     "summary": (
                         f"Face-to-path standard deviation is {face_std:.1f} degrees. "
@@ -272,6 +282,7 @@ def build_recommendations(
                     "title": f"Neutralize your {club_label} face-to-path bias",
                     "focus_area": "clubface control",
                     "severity": min(100, round(abs(avg_face_to_path) * 10)),
+                    "severity_label": _severity_label(min(100, round(abs(avg_face_to_path) * 10))),
                     "club_label": club_label,
                     "summary": (
                         f"Average face-to-path is {avg_face_to_path:.1f} degrees. "
@@ -291,6 +302,7 @@ def build_recommendations(
                     "title": f"Improve centered contact with {club_label}",
                     "focus_area": "strike quality",
                     "severity": min(100, round((benchmark_smash - avg_smash) * 150)),
+                    "severity_label": _severity_label(min(100, round((benchmark_smash - avg_smash) * 150))),
                     "club_label": club_label,
                     "summary": (
                         f"Average smash factor is {avg_smash:.2f} against your potential benchmark of {benchmark_smash:.2f}. "
@@ -307,6 +319,7 @@ def build_recommendations(
                     "title": f"Stabilize {club_label} tempo",
                     "focus_area": "tempo",
                     "severity": min(100, round(tempo_std * 90)),
+                    "severity_label": _severity_label(min(100, round(tempo_std * 90))),
                     "club_label": club_label,
                     "summary": (
                         f"Tempo swings by {tempo_std:.2f}. "
@@ -320,9 +333,10 @@ def build_recommendations(
         if outlier_rate is not None and outlier_rate >= 0.25:
             recommendations.append(
                 {
-                    "title": f"Trim high-variance {club_label} swings",
+                    "title": f"Build {club_label} shot pattern consistency",
                     "focus_area": "shot pattern",
                     "severity": min(100, round(outlier_rate * 120)),
+                    "severity_label": _severity_label(min(100, round(outlier_rate * 120))),
                     "club_label": club_label,
                     "summary": (
                         f"{outlier_rate * 100:.0f}% of shots were flagged as pattern outliers by the anomaly model. "
@@ -346,9 +360,10 @@ def build_recommendations(
         if gap < 7 or overlap > 0:
             recommendations.append(
                 {
-                    "title": f"Bunching: {left['club_label']} and {right['club_label']} overlap",
+                    "title": f"Gapping opportunity: {left['club_label']} and {right['club_label']}",
                     "focus_area": "distance gapping",
                     "severity": min(100, round(max(0, 7 - gap) * 8 + max(0, overlap) * 3)),
+                    "severity_label": _severity_label(min(100, round(max(0, 7 - gap) * 8 + max(0, overlap) * 3))),
                     "club_label": f"{left['club_label']} → {right['club_label']}",
                     "summary": (
                         f"These clubs carry within {gap:.1f} yards of each other"
@@ -364,6 +379,7 @@ def build_recommendations(
                     "title": f"Distance void: {left['club_label']} to {right['club_label']}",
                     "focus_area": "distance gapping",
                     "severity": min(100, round((gap - 25) * 4)),
+                    "severity_label": _severity_label(min(100, round((gap - 25) * 4))),
                     "club_label": f"{left['club_label']} → {right['club_label']}",
                     "summary": (
                         f"There is a {gap:.1f}-yard void between these clubs. "
@@ -383,6 +399,7 @@ def build_recommendations(
                 "title": "Review data quality: high rate of zero-value shots",
                 "focus_area": "data quality",
                 "severity": min(100, flagged_pct * 2),
+                "severity_label": _severity_label(min(100, flagged_pct * 2)),
                 "club_label": "all clubs",
                 "summary": (
                     f"{flagged_pct}% of shots ({total_flagged}/{total_shots}) had zero ball speed or carry distance "

@@ -11,7 +11,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from golf.cli import build_command
 from golf.ingest import parse_float, parse_timestamp
-from golf.analytics import score_sessions, build_forecasts, potential_gap_pct
+from golf.analytics import score_sessions, build_forecasts, potential_gap_pct, build_recommendations
 
 
 SAMPLE_CSV = """Date,Player,Club Name,Brand/Model,Club Type,Club Speed,Attack Angle,Club Path,Club Face,Face to Path,Ball Speed,Smash Factor,Launch Angle,Launch Direction,Backspin,Sidespin,Spin Rate,Spin Rate Type,Spin Axis,Apex Height,Carry Distance,Carry Deviation Angle,Carry Deviation Distance,Total Distance,Total Deviation Angle,Total Deviation Distance,Target Total Distance,Target Carry Distance,Note,Tag,Air Density,Temperature,Air Pressure,Relative Humidity,Back Stroke Length,Target Backswing Time,Target Downswing Time,Forward Stroke Length,Backswing Time,Downswing Time,Target Tempo,Swing Tempo
@@ -360,6 +360,39 @@ class TestLinearForecast(unittest.TestCase):
     def test_potential_gap_pct_capped_at_100(self) -> None:
         club = {"avg_smash_factor": 1.50, "potential_smash_factor": 1.45}
         self.assertLessEqual(potential_gap_pct(club), 100.0)
+
+
+class TestRecommendationLabels(unittest.TestCase):
+    def _club(self, **kwargs) -> dict:
+        base = {
+            "club_label": "7 Iron", "avg_total_deviation_distance": None,
+            "avg_carry_deviation_distance": None, "face_to_path_stddev": None,
+            "avg_face_to_path": None, "avg_smash_factor": None,
+            "potential_smash_factor": None, "tempo_stddev": None,
+            "outlier_rate": None, "avg_carry_distance": None,
+            "carry_stddev": None, "shot_count": 10,
+        }
+        base.update(kwargs)
+        return base
+
+    def test_severity_label_present_on_all_recs(self) -> None:
+        clubs = [self._club(avg_total_deviation_distance=15.0)]
+        recs = build_recommendations([], clubs)
+        for rec in recs:
+            self.assertIn("severity_label", rec)
+            self.assertIn(rec["severity_label"], ("High", "Medium", "Low"))
+
+    def test_high_offline_gets_high_label(self) -> None:
+        clubs = [self._club(avg_total_deviation_distance=15.0)]
+        recs = build_recommendations([], clubs)
+        self.assertTrue(any(r["severity_label"] == "High" for r in recs))
+
+    def test_no_word_bad_in_any_rec(self) -> None:
+        clubs = [self._club(avg_total_deviation_distance=15.0, face_to_path_stddev=8.0)]
+        recs = build_recommendations([], clubs)
+        for rec in recs:
+            for field in ("title", "summary"):
+                self.assertNotIn(" bad ", f" {rec.get(field, '').lower()} ")
 
 
 if __name__ == "__main__":
