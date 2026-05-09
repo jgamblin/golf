@@ -11,28 +11,31 @@ def render_html() -> str:
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Golf range analytics</title>
+    <title>Bad at golf. Great at data. — Jerry Gamblin</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700;1,900&display=swap" rel="stylesheet">
     <style>
       :root {
-        color-scheme: dark;
-        --bg: #081018;
-        --panel: #0f1d2c;
-        --text: #f4f7fb;
-        --muted: #9fb2c8;
-        --accent: #57b5ff;
-        --accent-soft: rgba(87, 181, 255, 0.15);
-        --warn: #ffb454;
-        --good: #5fd18b;
-        --bad: #ff7b72;
-        --border: rgba(255, 255, 255, 0.08);
+        --bg: #F2F2F0;
+        --panel: #ffffff;
+        --text: #1E340A;
+        --muted: #4D6E24;
+        --accent: #408114;
+        --accent2: #1B7114;
+        --accent-soft: rgba(64, 129, 20, 0.10);
+        --warn: #b45309;
+        --good: #1B7114;
+        --bad: #b45309;
+        --border: rgba(30, 52, 10, 0.12);
       }
 
       * { box-sizing: border-box; }
       body {
         margin: 0;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: linear-gradient(180deg, #07111a 0%, #091726 100%);
+        background: linear-gradient(180deg, #F2F2F0 0%, #ebebea 100%);
         color: var(--text);
       }
       main {
@@ -84,6 +87,34 @@ def render_html() -> str:
       .gh-link:hover { color: var(--accent); }
       .hero-title { font-size: clamp(1.7rem, 4vw, 2.4rem); letter-spacing: 0.01em; }
       .hero-sub { margin-top: 6px; }
+      .hero-eyebrow {
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+      .hero-title {
+        font-family: 'Playfair Display', Georgia, serif;
+        font-size: clamp(1.9rem, 5vw, 2.8rem);
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: 0;
+      }
+      .hero-title em { font-style: italic; color: var(--accent); }
+      .hero-divider {
+        width: 40px; height: 3px;
+        background: var(--accent);
+        border-radius: 2px;
+        margin: 12px 0 14px;
+      }
+      .hero-stat-row { display: flex; gap: 28px; flex-wrap: wrap; margin-top: 16px; }
+      .hero-stat-val { font-size: 1.3rem; font-weight: 800; color: var(--accent); line-height: 1; }
+      .hero-stat-lbl {
+        font-size: 0.72rem; font-weight: 600; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px;
+      }
 
       /* ── Grid & panels ──────────────────────────────── */
       .grid { display: grid; gap: 16px; }
@@ -96,7 +127,7 @@ def render_html() -> str:
         border: 1px solid var(--border);
         border-radius: 18px;
         padding: 20px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 2px 16px rgba(30, 52, 10, 0.07);
       }
       .stat-value { font-size: 1.9rem; font-weight: 800; margin-bottom: 4px; }
       .stat-label { color: var(--muted); font-size: 0.92rem; }
@@ -306,19 +337,17 @@ def render_html() -> str:
       <section class="hero">
         <div class="panel">
           <div class="hero-header">
-            <div class="badge">Range Performance Lab</div>
-            <div style="display:flex;align-items:center;gap:14px;">
-              <a class="gh-link" href="https://github.com/jgamblin/golf" target="_blank" rel="noopener">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-                GitHub
-              </a>
-              <div class="hero-chip" id="latest-session-chip"></div>
-            </div>
+            <div class="hero-eyebrow">Jerry Gamblin &bull; Range Performance Lab</div>
+            <a class="gh-link" href="https://github.com/jgamblin/golf" target="_blank" rel="noopener">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+              GitHub
+            </a>
           </div>
-          <h1 class="hero-title">Golf range analytics</h1>
+          <h1 class="hero-title">Bad at golf.<br><em>Great</em> at data.</h1>
+          <div class="hero-divider"></div>
           <p id="hero-text"></p>
-          <p class="hero-sub" id="hero-subtext"></p>
-          <p class="small" id="generated-at"></p>
+          <div class="hero-stat-row" id="hero-stats"></div>
+          <p class="small" id="generated-at" style="margin-top:14px;"></p>
         </div>
       </section>
 
@@ -464,7 +493,7 @@ def render_html() -> str:
     <script>
       const data = window.GOLF_SITE_DATA;
       const chartGrid = document.querySelector(".charts");
-      const COLORS = ["#57b5ff", "#5fd18b", "#ffb454", "#ff7b72", "#9b8cff", "#7ce2ff", "#ffd166", "#f4a261"];
+      const COLORS = ["#408114","#1B7114","#4D6E24","#b45309","#6b7280","#0369a1","#7c3aed","#0d9488"];
 
       const number = (value, digits = 1, suffix = "") => {
         if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -500,16 +529,27 @@ def render_html() -> str:
 
       // ── Hero ──────────────────────────────────────────────────────────
       document.getElementById("hero-text").textContent =
-        `Tracking ${data.overview.total_sessions} session(s), ${data.overview.total_shots} shots, and ${data.overview.tracked_clubs} clubs. The recommendations below are generated from your uploaded CSVs.`;
-      document.getElementById("generated-at").textContent = `Generated ${new Date(data.generated_at).toLocaleString()}`;
-
-      const latestSession = data.sessions.length ? data.sessions[data.sessions.length - 1] : null;
-      document.getElementById("latest-session-chip").textContent = latestSession && latestSession.session_timestamp
-        ? `Latest session ${new Date(latestSession.session_timestamp).toLocaleDateString()}`
-        : "Latest session unavailable";
-      document.getElementById("hero-subtext").textContent = data.next_session_worklist?.length
-        ? `${data.next_session_worklist.length} focus item(s) generated for your next practice block.`
-        : "Add another session to unlock a personalized next-session focus list.";
+        "Tracking every swing, every miss, and every small win with a Garmin R10 and way too much Python. The handicap isn't improving as fast as the analytics.";
+      document.getElementById("generated-at").textContent =
+        `Updated ${new Date(data.generated_at).toLocaleString()}`;
+      const heroStats = document.getElementById("hero-stats");
+      [
+        ["Sessions", data.overview.total_sessions],
+        ["Shots tracked", data.overview.total_shots],
+        ["Clubs", data.overview.tracked_clubs],
+        ["Avg consistency", data.overview.avg_consistency_score != null ? data.overview.avg_consistency_score.toFixed(1) : "—"],
+      ].forEach(([label, val]) => {
+        const div = document.createElement("div");
+        const valEl = document.createElement("div");
+        valEl.className = "hero-stat-val";
+        valEl.textContent = val;
+        const lblEl = document.createElement("div");
+        lblEl.className = "hero-stat-lbl";
+        lblEl.textContent = label;
+        div.appendChild(valEl);
+        div.appendChild(lblEl);
+        heroStats.appendChild(div);
+      });
 
       // ── Overview stats ────────────────────────────────────────────────
       const overviewItems = [
