@@ -209,6 +209,10 @@ __marimo__/
 # Generated analytics outputs
 output/
 
+# Social media generation
+scripts/output/
+*-social*.png
+
 # Git worktrees
 .worktrees/
 
