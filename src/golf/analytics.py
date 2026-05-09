@@ -415,7 +415,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
 
     club_labels = [club["club_label"] for club in club_summaries]
     dispersion = []
-    for session in sessions:
+    for session_idx, session in enumerate(sessions):
         for shot in session["shots"]:
             y = first_value(shot.get("carry_distance"), shot.get("total_distance"))
             x = first_value(shot.get("carry_deviation_distance"), shot.get("total_deviation_distance"))
@@ -427,6 +427,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
                     "x": round(x, 1),
                     "y": round(y, 1),
                     "outlier": shot.get("is_outlier", False),
+                    "session_index": session_idx,
                 }
             )
 
@@ -685,6 +686,68 @@ def score_sessions(session_summaries: list[dict[str, Any]]) -> list[float | None
         else:
             ratings.append(round(weighted_sum / total_weight, 1))
     return ratings
+
+
+def _linear_forecast(values: list[float], steps: int = 3) -> dict[str, Any]:
+    from statistics import linear_regression as _linreg
+    n = len(values)
+    fit = _linreg(list(range(n)), values)
+    slope, intercept = fit.slope, fit.intercept
+    residuals = [values[i] - (slope * i + intercept) for i in range(n)]
+    se = (sum(r * r for r in residuals) / max(n - 2, 1)) ** 0.5
+    predictions: list[float] = []
+    confidence_band: list[list[float]] = []
+    for step in range(1, steps + 1):
+        x = n - 1 + step
+        pred = round(slope * x + intercept, 1)
+        half = round(1.96 * se, 1)
+        predictions.append(pred)
+        confidence_band.append([round(pred - half, 1), round(pred + half, 1)])
+    return {
+        "slope": round(slope, 3),
+        "last_actual": round(values[-1], 1),
+        "predictions": predictions,
+        "confidence_band": confidence_band,
+    }
+
+
+def build_forecasts(
+    session_summaries: list[dict[str, Any]], min_sessions: int = 3
+) -> dict[str, Any]:
+    club_carry: dict[str, list[float]] = {}
+    club_smash: dict[str, list[float]] = {}
+    for session in session_summaries:
+        for club_sum in session.get("club_summaries", []):
+            label = club_sum["club_label"]
+            carry = club_sum.get("avg_carry_distance")
+            smash = club_sum.get("avg_smash_factor")
+            if isinstance(carry, (int, float)):
+                club_carry.setdefault(label, []).append(float(carry))
+            if isinstance(smash, (int, float)):
+                club_smash.setdefault(label, []).append(float(smash))
+    per_club: dict[str, dict[str, Any]] = {}
+    for club in set(club_carry) | set(club_smash):
+        club_data: dict[str, Any] = {}
+        carries = club_carry.get(club, [])
+        smashs = club_smash.get(club, [])
+        if len(carries) >= min_sessions:
+            club_data["carry"] = _linear_forecast(carries)
+        if len(smashs) >= min_sessions:
+            club_data["smash"] = _linear_forecast(smashs)
+        if club_data:
+            per_club[club] = club_data
+    return {
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "per_club": per_club,
+    }
+
+
+def potential_gap_pct(club_summary: dict[str, Any]) -> float | None:
+    avg = club_summary.get("avg_smash_factor")
+    potential = club_summary.get("potential_smash_factor")
+    if not isinstance(avg, (int, float)) or not isinstance(potential, (int, float)) or potential == 0:
+        return None
+    return round(min(100.0, float(avg) / float(potential) * 100.0), 1)
 
 
 def build_analysis(sessions: list[dict[str, Any]]) -> dict[str, Any]:

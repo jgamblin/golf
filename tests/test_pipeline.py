@@ -11,7 +11,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from golf.cli import build_command
 from golf.ingest import parse_float, parse_timestamp
-from golf.analytics import score_sessions
+from golf.analytics import score_sessions, build_forecasts, potential_gap_pct
 
 
 SAMPLE_CSV = """Date,Player,Club Name,Brand/Model,Club Type,Club Speed,Attack Angle,Club Path,Club Face,Face to Path,Ball Speed,Smash Factor,Launch Angle,Launch Direction,Backspin,Sidespin,Spin Rate,Spin Rate Type,Spin Axis,Apex Height,Carry Distance,Carry Deviation Angle,Carry Deviation Distance,Total Distance,Total Deviation Angle,Total Deviation Distance,Target Total Distance,Target Carry Distance,Note,Tag,Air Density,Temperature,Air Pressure,Relative Humidity,Back Stroke Length,Target Backswing Time,Target Downswing Time,Forward Stroke Length,Backswing Time,Downswing Time,Target Tempo,Swing Tempo
@@ -314,6 +314,52 @@ class TestScoreSessions(unittest.TestCase):
             # With one session, rating should be None (not enough data to rank).
             self.assertIn("session_rating", analysis["sessions"][0])
             self.assertIsNone(analysis["sessions"][0]["session_rating"])
+
+
+class TestLinearForecast(unittest.TestCase):
+    def _sessions(self, carries):
+        return [
+            {"club_summaries": [{"club_label": "7 Iron", "avg_carry_distance": c, "avg_smash_factor": 1.25 + i * 0.01}]}
+            for i, c in enumerate(carries)
+        ]
+
+    def test_requires_min_three_sessions(self) -> None:
+        result = build_forecasts(self._sessions([145.0, 147.0]))
+        self.assertEqual(result["per_club"], {})
+
+    def test_produces_three_predictions(self) -> None:
+        result = build_forecasts(self._sessions([140.0, 143.0, 146.0]))
+        carry = result["per_club"]["7 Iron"]["carry"]
+        self.assertEqual(len(carry["predictions"]), 3)
+        self.assertEqual(len(carry["confidence_band"]), 3)
+
+    def test_slope_correct_for_linear_data(self) -> None:
+        result = build_forecasts(self._sessions([140.0, 143.0, 146.0]))
+        self.assertAlmostEqual(result["per_club"]["7 Iron"]["carry"]["slope"], 3.0, places=1)
+
+    def test_predictions_continue_trend(self) -> None:
+        result = build_forecasts(self._sessions([140.0, 143.0, 146.0]))
+        preds = result["per_club"]["7 Iron"]["carry"]["predictions"]
+        self.assertAlmostEqual(preds[0], 149.0, places=0)
+        self.assertAlmostEqual(preds[1], 152.0, places=0)
+        self.assertAlmostEqual(preds[2], 155.0, places=0)
+
+    def test_has_generated_at(self) -> None:
+        result = build_forecasts(self._sessions([140.0, 143.0, 146.0]))
+        self.assertIn("generated_at", result)
+
+    def test_potential_gap_pct_normal(self) -> None:
+        club = {"avg_smash_factor": 1.28, "potential_smash_factor": 1.45}
+        result = potential_gap_pct(club)
+        self.assertAlmostEqual(result, 88.3, places=0)
+
+    def test_potential_gap_pct_missing_returns_none(self) -> None:
+        self.assertIsNone(potential_gap_pct({"avg_smash_factor": None, "potential_smash_factor": 1.45}))
+        self.assertIsNone(potential_gap_pct({"avg_smash_factor": 1.28, "potential_smash_factor": None}))
+
+    def test_potential_gap_pct_capped_at_100(self) -> None:
+        club = {"avg_smash_factor": 1.50, "potential_smash_factor": 1.45}
+        self.assertLessEqual(potential_gap_pct(club), 100.0)
 
 
 if __name__ == "__main__":
