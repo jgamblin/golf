@@ -123,7 +123,7 @@ def render_html() -> str:
         margin-bottom: 24px;
       }
       .panel {
-        background: rgba(15, 29, 44, 0.94);
+        background: var(--panel);
         border: 1px solid var(--border);
         border-radius: 18px;
         padding: 20px;
@@ -316,7 +316,7 @@ def render_html() -> str:
       .tab-btn.active {
         color: var(--accent);
         border-bottom-color: var(--accent);
-        background: rgba(87, 181, 255, 0.06);
+        background: rgba(64, 129, 20, 0.08);
       }
       .tab-panel { display: none; }
       .tab-panel.active { display: block; }
@@ -777,8 +777,8 @@ def render_html() -> str:
               type: "bar",
               label: "Avg smash factor",
               data: smashActual,
-              backgroundColor: "rgba(87, 181, 255, 0.65)",
-              borderColor: "#57b5ff",
+              backgroundColor: "rgba(64, 129, 20, 0.65)",
+              borderColor: "#408114",
               borderWidth: 1,
               order: 2,
             },
@@ -786,11 +786,11 @@ def render_html() -> str:
               type: "line",
               label: "Personal ceiling (90th %ile)",
               data: smashPotential,
-              borderColor: "#5fd18b",
+              borderColor: "#1B7114",
               backgroundColor: "transparent",
               borderWidth: 2,
               pointRadius: 5,
-              pointBackgroundColor: "#5fd18b",
+              pointBackgroundColor: "#1B7114",
               tension: 0,
               order: 1,
             },
@@ -820,12 +820,12 @@ def render_html() -> str:
             {
               label: "Avg carry (yds)",
               data: data.charts.clubs.avg_carry_distance,
-              backgroundColor: "rgba(87, 181, 255, 0.6)",
+              backgroundColor: "rgba(64, 129, 20, 0.6)",
             },
             {
               label: "Consistency score",
               data: data.charts.clubs.consistency_score,
-              backgroundColor: "rgba(95, 209, 139, 0.6)",
+              backgroundColor: "rgba(27, 113, 20, 0.6)",
               yAxisID: "y1",
             },
           ],
@@ -872,8 +872,8 @@ def render_html() -> str:
               type: "bar",
               label: "Carry range (avg \u00b1 1 SD)",
               data: bagFloatData,
-              backgroundColor: bagIsBunched.map((b) => b ? "rgba(255, 180, 84, 0.45)" : "rgba(87, 181, 255, 0.35)"),
-              borderColor: bagIsBunched.map((b) => b ? "#ffb454" : "#57b5ff"),
+              backgroundColor: bagIsBunched.map((b) => b ? "rgba(180, 83, 9, 0.45)" : "rgba(64, 129, 20, 0.35)"),
+              borderColor: bagIsBunched.map((b) => b ? "#b45309" : "#408114"),
               borderWidth: 1.5,
               borderSkipped: false,
               order: 2,
@@ -959,10 +959,10 @@ def render_html() -> str:
               label: "Avg lateral miss (yds)",
               data: data.charts.timeline.miss_direction,
               backgroundColor: data.charts.timeline.miss_direction.map((v) =>
-                v === null ? "transparent" : v > 0 ? "rgba(255, 123, 114, 0.7)" : "rgba(87, 181, 255, 0.7)"
+                v === null ? "transparent" : v > 0 ? "rgba(180, 83, 9, 0.7)" : "rgba(64, 129, 20, 0.7)"
               ),
               borderColor: data.charts.timeline.miss_direction.map((v) =>
-                v === null ? "transparent" : v > 0 ? "#ff7b72" : "#57b5ff"
+                v === null ? "transparent" : v > 0 ? "#b45309" : "#408114"
               ),
               borderWidth: 1,
             },
@@ -1011,9 +1011,9 @@ def render_html() -> str:
         });
         const scoreColor = (score) => {
           if (score == null) return null;
-          if (score >= 75) return { bg: "rgba(95, 209, 139, 0.28)", text: "#5fd18b" };
-          if (score >= 50) return { bg: "rgba(255, 180, 84, 0.28)", text: "#ffb454" };
-          return { bg: "rgba(255, 123, 114, 0.28)", text: "#ff7b72" };
+          if (score >= 75) return { bg: "rgba(27, 113, 20, 0.18)", text: "#1B7114" };
+          if (score >= 50) return { bg: "rgba(77, 110, 36, 0.18)", text: "#4D6E24" };
+          return { bg: "rgba(180, 83, 9, 0.15)", text: "#b45309" };
         };
         const table = document.createElement("table");
         table.className = "heatmap-table";
