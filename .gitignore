@@ -208,3 +208,9 @@ __marimo__/
 
 # Generated analytics outputs
 output/
+
+# Git worktrees
+.worktrees/
+
+# Brainstorm session files
+.superpowers/
