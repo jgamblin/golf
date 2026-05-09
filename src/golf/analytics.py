@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 from collections import defaultdict
-from statistics import linear_regression, pstdev, quantiles
+from math import ceil
+from statistics import StatisticsError, linear_regression, median, pstdev, quantiles
 from typing import Any
 
 from .ml import score_shot_anomalies
@@ -420,7 +422,6 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
     carry_trend = []
     smash_trend = []
     offline_trend = []
-    rating_trend = []
     for session in session_summaries:
         stamp = session.get("session_timestamp")
         label = stamp[:10] if stamp else session["source_file"]
@@ -428,10 +429,10 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
         carry_trend.append(round_or_none(session.get("avg_carry_distance")))
         smash_trend.append(round_or_none(session.get("avg_smash_factor"), 2))
         offline_trend.append(round_or_none(session.get("avg_offline_distance")))
-        rating_trend.append(round_or_none(session.get("session_rating")))
 
     club_labels = [club["club_label"] for club in club_summaries]
     dispersion = []
+    path_cloud = []
     for session_idx, session in enumerate(sessions):
         for shot in session["shots"]:
             y = first_value(shot.get("carry_distance"), shot.get("total_distance"))
@@ -447,6 +448,18 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
                     "session_index": session_idx,
                 }
             )
+            club_path = shot.get("club_path")
+            face_to_path = shot.get("face_to_path")
+            if isinstance(club_path, (int, float)) and isinstance(face_to_path, (int, float)):
+                path_cloud.append(
+                    {
+                        "club": shot["club_label"],
+                        "x": round(float(club_path), 2),
+                        "y": round(float(face_to_path), 2),
+                        "outlier": shot.get("is_outlier", False),
+                        "session_index": session_idx,
+                    }
+                )
 
     miss_trend = []
     for session in session_summaries:
@@ -459,7 +472,6 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
             "avg_smash_factor": smash_trend,
             "avg_offline_distance": offline_trend,
             "miss_direction": miss_trend,
-            "session_rating": rating_trend,
         },
         "clubs": {
             "labels": club_labels,
@@ -468,6 +480,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
             "consistency_score": [round_or_none(club.get("consistency_score")) for club in club_summaries],
         },
         "dispersion": dispersion,
+        "path_cloud": path_cloud,
     }
 
 
@@ -785,6 +798,521 @@ def _club_velocity(club_label: str, session_summaries: list[dict[str, Any]], n: 
     return "Holding steady"
 
 
+def _paired_values(shots: list[dict[str, Any]], left: str, right: str) -> list[tuple[float, float]]:
+    pairs: list[tuple[float, float]] = []
+    for shot in shots:
+        a = shot.get(left)
+        b = shot.get(right)
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            pairs.append((float(a), float(b)))
+    return pairs
+
+
+def _safe_slope(pairs: list[tuple[float, float]]) -> float | None:
+    if len(pairs) < 3:
+        return None
+    xs = [p[0] for p in pairs]
+    ys = [p[1] for p in pairs]
+    try:
+        fit = linear_regression(xs, ys)
+    except StatisticsError:
+        return None
+    return round(fit.slope, 4)
+
+
+def _club_bag_order_key(club_label: str) -> tuple[int, int, str]:
+    label = (club_label or "").strip().lower()
+
+    if "driver" in label:
+        return (0, 0, club_label)
+
+    wood_match = re.search(r"(\d+)\s*wood|wood\s*(\d+)", label)
+    if wood_match:
+        number = next((int(part) for part in wood_match.groups() if part), 7)
+        return (1, number, club_label)
+    if "wood" in label:
+        return (1, 99, club_label)
+
+    hybrid_match = re.search(r"(\d+)\s*hybrid|hybrid\s*(\d+)", label)
+    if hybrid_match:
+        number = next((int(part) for part in hybrid_match.groups() if part), 4)
+        return (2, number, club_label)
+    if "hybrid" in label or "rescue" in label:
+        return (2, 99, club_label)
+
+    iron_match = re.search(r"(\d+)\s*iron|iron\s*(\d+)", label)
+    if iron_match:
+        number = next((int(part) for part in iron_match.groups() if part), 7)
+        return (3, number, club_label)
+
+    if "pitching" in label or re.search(r"\bpw\b", label):
+        return (4, 0, club_label)
+    if "gap" in label or "approach" in label or re.search(r"\baw\b|\bgw\b", label):
+        return (4, 1, club_label)
+    if "sand" in label or re.search(r"\bsw\b", label):
+        return (4, 2, club_label)
+    if "lob" in label or re.search(r"\blw\b", label):
+        return (4, 3, club_label)
+    if "wedge" in label:
+        return (4, 9, club_label)
+
+    if "putter" in label:
+        return (5, 0, club_label)
+
+    return (9, 99, club_label)
+
+
+def _robust_carry_baseline(shots: list[dict[str, Any]]) -> float | None:
+    carries = sorted(
+        float(shot["carry_distance"])
+        for shot in shots
+        if isinstance(shot.get("carry_distance"), (int, float)) and float(shot["carry_distance"]) > 0
+    )
+    if not carries:
+        return None
+    top_count = max(3, ceil(len(carries) * 0.35))
+    return float(median(carries[-top_count:]))
+
+
+def _rollout_baseline(shots: list[dict[str, Any]]) -> float | None:
+    rollout_values = [
+        float(shot["total_distance"]) - float(shot["carry_distance"])
+        for shot in shots
+        if isinstance(shot.get("carry_distance"), (int, float))
+        and isinstance(shot.get("total_distance"), (int, float))
+        and float(shot["total_distance"]) >= float(shot["carry_distance"])
+    ]
+    rollout = average(rollout_values)
+    if rollout is None:
+        return None
+    return max(0.0, min(30.0, float(rollout)))
+
+
+def _minimum_gap_yards(previous_club: str, current_club: str) -> float:
+    joined = f"{previous_club} {current_club}".lower()
+    if any(token in joined for token in ["wedge", "pitching", "gap", "sand", "lob"]):
+        return 6.0
+    if any(token in joined for token in ["driver", "wood", "hybrid", "rescue"]):
+        return 10.0
+    return 8.0
+
+
+def _goal_carry_anchor(club_label: str) -> float | None:
+    label = (club_label or "").lower()
+    if "driver" in label:
+        return 200.0
+    if re.search(r"\b3\s*hybrid\b|\bhybrid\s*3\b", label):
+        return 175.0
+    if re.search(r"\b5\s*iron\b|\biron\s*5\b", label):
+        return 150.0
+    if "pitching" in label or re.search(r"\bpw\b", label):
+        return 95.0
+    if "gap" in label or "approach" in label or re.search(r"\bgw\b|\baw\b", label):
+        return 80.0
+    if "sand" in label or re.search(r"\bsw\b", label):
+        return 70.0
+    if "lob" in label or re.search(r"\blw\b", label):
+        return 60.0
+    return None
+
+
+def _automatic_gapping_targets(club_buckets: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, float | None]]:
+    club_rows: list[dict[str, float | None | str]] = []
+    for club_label, shots in club_buckets.items():
+        carry_baseline = _robust_carry_baseline(shots)
+        rollout_baseline = _rollout_baseline(shots)
+        if carry_baseline is None:
+            continue
+        club_rows.append(
+            {
+                "club_label": club_label,
+                "carry_baseline": carry_baseline,
+                "rollout_baseline": rollout_baseline,
+            }
+        )
+
+    club_rows.sort(key=lambda item: _club_bag_order_key(str(item["club_label"])))
+    targets: dict[str, dict[str, float | None]] = {}
+    if not club_rows:
+        return targets
+
+    goal_anchors: list[tuple[int, float]] = []
+    for index, club in enumerate(club_rows):
+        goal = _goal_carry_anchor(str(club["club_label"]))
+        if goal is not None:
+            goal_anchors.append((index, goal))
+
+    goal_carries: list[float | None] = [None] * len(club_rows)
+    if len(goal_anchors) >= 2:
+        for index, goal in goal_anchors:
+            goal_carries[index] = goal
+
+        for (left_idx, left_goal), (right_idx, right_goal) in zip(goal_anchors, goal_anchors[1:]):
+            span = right_idx - left_idx
+            if span <= 1:
+                continue
+            for idx in range(left_idx + 1, right_idx):
+                ratio = (idx - left_idx) / span
+                goal_carries[idx] = left_goal + (right_goal - left_goal) * ratio
+
+        first_idx, first_goal = goal_anchors[0]
+        if first_idx > 0:
+            if len(goal_anchors) >= 2 and goal_anchors[1][0] != first_idx:
+                slope = (goal_anchors[1][1] - first_goal) / (goal_anchors[1][0] - first_idx)
+            else:
+                slope = -12.0
+            for idx in range(first_idx - 1, -1, -1):
+                goal_carries[idx] = (goal_carries[idx + 1] or first_goal) - slope
+
+        last_idx, _ = goal_anchors[-1]
+        for idx in range(last_idx + 1, len(club_rows)):
+            goal_carries[idx] = (goal_carries[idx - 1] or 150.0) - 10.0
+
+    previous_target: float | None = None
+    previous_label = ""
+    for index, club in enumerate(club_rows):
+        club_label = str(club["club_label"])
+        if goal_carries[index] is not None:
+            target_carry = float(goal_carries[index] or 0.0)
+        else:
+            target_carry = float(club["carry_baseline"] or 0.0)
+            if previous_target is not None:
+                min_gap = _minimum_gap_yards(previous_label, club_label)
+                target_carry = min(target_carry, previous_target - min_gap)
+        target_carry = max(5.0, target_carry)
+
+        rollout = float(club["rollout_baseline"]) if isinstance(club.get("rollout_baseline"), (int, float)) else None
+
+        targets[club_label] = {
+            "carry": round(target_carry, 0),
+            "total": round(target_carry + rollout, 0) if rollout is not None else None,
+        }
+
+        previous_target = target_carry
+        previous_label = club_label
+
+    return targets
+
+
+def build_spin_profile(club_buckets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    per_club: dict[str, dict[str, float | int | None]] = {}
+    for club_label, shots in club_buckets.items():
+        spin_values = [shot.get("spin_rate") for shot in shots]
+        axis_values = [shot.get("spin_axis") for shot in shots]
+        launch_dir_values = [shot.get("launch_direction") for shot in shots]
+        apex_values = [shot.get("apex_height") for shot in shots]
+        per_club[club_label] = {
+            "spin_rate_avg": round_or_none(average(spin_values)),
+            "spin_rate_stddev": round_or_none(deviation(spin_values)),
+            "spin_axis_avg": round_or_none(average(axis_values), 2),
+            "spin_axis_stddev": round_or_none(deviation(axis_values), 2),
+            "launch_direction_avg": round_or_none(average(launch_dir_values), 2),
+            "launch_direction_stddev": round_or_none(deviation(launch_dir_values), 2),
+            "apex_height_avg": round_or_none(average(apex_values), 1),
+            "apex_height_stddev": round_or_none(deviation(apex_values), 1),
+            "spin_to_launch_slope": _safe_slope(_paired_values(shots, "spin_axis", "launch_direction")),
+            "sample_size": len(shots),
+        }
+    return {"per_club": per_club}
+
+
+def build_tempo_profile(club_buckets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    per_club: dict[str, dict[str, float | int | None]] = {}
+    for club_label, shots in club_buckets.items():
+        backswing = [shot.get("backswing_time") for shot in shots]
+        downswing = [shot.get("downswing_time") for shot in shots]
+        swing_tempo = [shot.get("swing_tempo") for shot in shots]
+        target_tempo = [shot.get("target_tempo") for shot in shots]
+        tempo_pairs = _paired_values(shots, "target_tempo", "swing_tempo")
+        tempo_error_basis = "target"
+        if tempo_pairs:
+            tempo_error = [abs(actual - target) for target, actual in tempo_pairs]
+            target_tempo_avg = round_or_none(average(target_tempo), 2)
+        else:
+            swing_values = [float(value) for value in swing_tempo if isinstance(value, (int, float))]
+            baseline_tempo = median(swing_values) if swing_values else None
+            tempo_error = [abs(value - baseline_tempo) for value in swing_values] if baseline_tempo is not None else []
+            tempo_error_basis = "baseline"
+            target_tempo_avg = round_or_none(baseline_tempo, 2)
+        per_club[club_label] = {
+            "backswing_time_avg": round_or_none(average(backswing), 3),
+            "downswing_time_avg": round_or_none(average(downswing), 3),
+            "swing_tempo_avg": round_or_none(average(swing_tempo), 2),
+            "swing_tempo_stddev": round_or_none(deviation(swing_tempo), 2),
+            "target_tempo_avg": target_tempo_avg,
+            "tempo_error_avg": round_or_none(average(tempo_error), 2),
+            "tempo_error_stddev": round_or_none(deviation(tempo_error), 2),
+            "target_to_actual_tempo_slope": _safe_slope(tempo_pairs),
+            "tempo_error_basis": tempo_error_basis,
+            "sample_size": len(shots),
+        }
+    return {"per_club": per_club}
+
+
+def build_target_control_profile(club_buckets: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    per_club: dict[str, dict[str, float | int | None]] = {}
+    auto_targets = _automatic_gapping_targets(club_buckets)
+    for club_label, shots in club_buckets.items():
+        carry_target = auto_targets.get(club_label, {}).get("carry")
+        total_target = auto_targets.get(club_label, {}).get("total")
+
+        carry_pairs: list[tuple[float, float]] = []
+        total_pairs: list[tuple[float, float]] = []
+        manual_carry_count = 0
+        manual_total_count = 0
+        for shot in shots:
+            carry = shot.get("carry_distance")
+            total = shot.get("total_distance")
+
+            shot_carry_target = shot.get("target_carry_distance")
+            if isinstance(shot_carry_target, (int, float)):
+                manual_carry_count += 1
+            else:
+                shot_carry_target = carry_target
+            if isinstance(shot_carry_target, (int, float)) and isinstance(carry, (int, float)):
+                carry_pairs.append((float(shot_carry_target), float(carry)))
+
+            shot_total_target = shot.get("target_total_distance")
+            if isinstance(shot_total_target, (int, float)):
+                manual_total_count += 1
+            else:
+                shot_total_target = total_target
+            if isinstance(shot_total_target, (int, float)) and isinstance(total, (int, float)):
+                total_pairs.append((float(shot_total_target), float(total)))
+
+        carry_error = [actual - target for target, actual in carry_pairs]
+        total_error = [actual - target for target, actual in total_pairs]
+        per_club[club_label] = {
+            "auto_target_carry_distance_avg": round_or_none(carry_target, 0),
+            "auto_target_total_distance_avg": round_or_none(total_target, 0),
+            "carry_target_error_avg": round_or_none(average(carry_error), 1),
+            "carry_target_error_stddev": round_or_none(deviation(carry_error), 1),
+            "total_target_error_avg": round_or_none(average(total_error), 1),
+            "total_target_error_stddev": round_or_none(deviation(total_error), 1),
+            "carry_target_slope": _safe_slope(carry_pairs),
+            "total_target_slope": _safe_slope(total_pairs),
+            "target_shot_count": len(carry_pairs) + len(total_pairs),
+            "manual_carry_target_count": manual_carry_count,
+            "manual_total_target_count": manual_total_count,
+        }
+    return {"per_club": per_club}
+
+
+def build_environment_profile(all_shots: list[dict[str, Any]]) -> dict[str, Any]:
+    conditions = {
+        "air_density_avg": round_or_none(average([shot.get("air_density") for shot in all_shots]), 3),
+        "temperature_avg": round_or_none(average([shot.get("temperature") for shot in all_shots]), 1),
+        "air_pressure_avg": round_or_none(average([shot.get("air_pressure") for shot in all_shots]), 2),
+        "relative_humidity_avg": round_or_none(average([shot.get("relative_humidity") for shot in all_shots]), 1),
+    }
+    carry_temp_pairs = _paired_values(all_shots, "temperature", "carry_distance")
+    carry_density_pairs = _paired_values(all_shots, "air_density", "carry_distance")
+    return {
+        "conditions": conditions,
+        "carry_vs_temperature_slope": _safe_slope(carry_temp_pairs),
+        "carry_vs_air_density_slope": _safe_slope(carry_density_pairs),
+        "sample_size": len(all_shots),
+    }
+
+
+def _club_quality_profile(club_label: str | None) -> dict[str, tuple[float, float]]:
+    club = (club_label or "").lower()
+    if "driver" in club:
+        return {
+            "smash": (1.15, 1.65),
+            "launch": (-5.0, 24.0),
+            "spin": (800.0, 5000.0),
+        }
+    if "wood" in club or "hybrid" in club:
+        return {
+            "smash": (1.05, 1.55),
+            "launch": (-2.0, 28.0),
+            "spin": (1200.0, 7000.0),
+        }
+    if "wedge" in club or "pitching" in club or "sand" in club or "gap" in club or "lob" in club:
+        return {
+            "smash": (0.8, 1.35),
+            "launch": (5.0, 50.0),
+            "spin": (1500.0, 14000.0),
+        }
+    if "iron" in club:
+        return {
+            "smash": (0.9, 1.45),
+            "launch": (0.0, 35.0),
+            "spin": (1200.0, 10000.0),
+        }
+    return {
+        "smash": (0.8, 1.6),
+        "launch": (-10.0, 60.0),
+        "spin": (200.0, 15000.0),
+    }
+
+
+def build_data_quality_profile(sessions: list[dict[str, Any]], all_shots: list[dict[str, Any]]) -> dict[str, Any]:
+    flagged = [shot for shot in all_shots if shot.get("data_quality_flags")]
+    total_shots = len(all_shots)
+    reasons: dict[str, int] = defaultdict(int)
+    critical_fields = [
+        "club_speed",
+        "ball_speed",
+        "carry_distance",
+        "total_distance",
+        "smash_factor",
+        "launch_angle",
+        "spin_rate",
+        "swing_tempo",
+    ]
+
+    def _suspicious_reason(shot: dict[str, Any]) -> list[str]:
+        issues: list[str] = []
+        carry = shot.get("carry_distance")
+        total = shot.get("total_distance")
+        smash = shot.get("smash_factor")
+        launch = shot.get("launch_angle")
+        spin = shot.get("spin_rate")
+        offline = first_value(shot.get("total_deviation_distance"), shot.get("carry_deviation_distance"))
+        club_label = str(shot.get("club_label") or "unknown")
+        club_family = _club_quality_profile(club_label).get("label", "club")
+        profile = _club_quality_profile(shot.get("club_label"))
+        smash_min, smash_max = profile["smash"]
+        launch_min, launch_max = profile["launch"]
+        spin_min, spin_max = profile["spin"]
+
+        if isinstance(total, (int, float)) and isinstance(carry, (int, float)) and total + 5 < carry:
+            issues.append(f"{club_family}: total_lt_carry")
+        if isinstance(smash, (int, float)) and (smash < smash_min or smash > smash_max):
+            issues.append(f"{club_family}: smash_out_of_range")
+        if isinstance(launch, (int, float)) and (launch < launch_min or launch > launch_max):
+            issues.append(f"{club_family}: launch_out_of_range")
+        if isinstance(spin, (int, float)) and (spin < spin_min or spin > spin_max):
+            issues.append(f"{club_family}: spin_out_of_range")
+        if isinstance(offline, (int, float)) and isinstance(carry, (int, float)) and abs(offline) > max(carry, 1):
+            issues.append(f"{club_family}: offline_gt_carry")
+        return issues
+
+    for shot in flagged:
+        for reason in shot.get("data_quality_flags", []):
+            reasons[str(reason)] += 1
+
+    missing_by_field: dict[str, int] = {}
+    for field in critical_fields:
+        missing_by_field[field] = sum(1 for shot in all_shots if shot.get(field) is None)
+
+    suspicious_counts: dict[str, int] = defaultdict(int)
+    suspicious_shot_count = 0
+    for shot in all_shots:
+        issues = _suspicious_reason(shot)
+        if issues:
+            suspicious_shot_count += 1
+        for issue in issues:
+            suspicious_counts[issue] += 1
+
+    per_session: list[dict[str, Any]] = []
+    for session in sessions:
+        shot_count = len(session.get("shots", []))
+        flagged_count = sum(1 for shot in session.get("shots", []) if shot.get("data_quality_flags"))
+        missing_count = sum(
+            1
+            for shot in session.get("shots", [])
+            if any(shot.get(field) is None for field in critical_fields)
+        )
+        suspicious_count = sum(1 for shot in session.get("shots", []) if _suspicious_reason(shot))
+        per_session.append(
+            {
+                "session_id": session.get("session_id"),
+                "source_file": session.get("source_file"),
+                "session_timestamp": session.get("session_timestamp"),
+                "shot_count": shot_count,
+                "flagged_shot_count": flagged_count,
+                "flagged_rate": round_or_none((flagged_count / shot_count) * 100 if shot_count else None, 1),
+                "missing_critical_rate": round_or_none((missing_count / shot_count) * 100 if shot_count else None, 1),
+                "suspicious_rate": round_or_none((suspicious_count / shot_count) * 100 if shot_count else None, 1),
+            }
+        )
+    return {
+        "total_shots": total_shots,
+        "flagged_shot_count": len(flagged),
+        "flagged_rate": round_or_none((len(flagged) / total_shots) * 100 if total_shots else None, 1),
+        "flag_reasons": dict(sorted(reasons.items(), key=lambda item: item[1], reverse=True)),
+        "missing_by_field": dict(sorted(missing_by_field.items(), key=lambda item: item[1], reverse=True)),
+        "suspicious_checks": dict(sorted(suspicious_counts.items(), key=lambda item: item[1], reverse=True)),
+        "suspicious_shot_count": suspicious_shot_count,
+        "suspicious_rate": round_or_none((suspicious_shot_count / total_shots) * 100 if total_shots else None, 1),
+        "per_session": per_session,
+    }
+
+
+def attach_recommendation_confidence(
+    recommendations: list[dict[str, Any]],
+    club_summaries: list[dict[str, Any]],
+    data_quality: dict[str, Any],
+) -> list[dict[str, Any]]:
+    club_samples = {
+        club.get("club_label"): int(club.get("shot_count") or 0)
+        for club in club_summaries
+    }
+    quality_rate = data_quality.get("flagged_rate")
+    quality_factor = 1.0
+    if isinstance(quality_rate, (int, float)):
+        # Higher flagged-shot rate lowers recommendation confidence.
+        quality_factor = max(0.45, 1.0 - float(quality_rate) / 100.0)
+
+    enriched: list[dict[str, Any]] = []
+    for rec in recommendations:
+        club_label = str(rec.get("club_label") or "")
+
+        if "→" in club_label:
+            parts = [p.strip() for p in club_label.split("→") if p.strip()]
+            samples = [club_samples.get(p, 0) for p in parts]
+            sample_size = int(sum(samples) / len(samples)) if samples else 0
+        elif club_label == "all clubs":
+            sample_size = int(sum(club_samples.values()) / max(len(club_samples), 1))
+        else:
+            sample_size = club_samples.get(club_label, 0)
+
+        sample_factor = min(1.0, sample_size / 30.0)
+        confidence_score = round((sample_factor * 0.65 + quality_factor * 0.35) * 100)
+        if confidence_score >= 75:
+            confidence_label = "High"
+        elif confidence_score >= 50:
+            confidence_label = "Medium"
+        else:
+            confidence_label = "Low"
+
+        severity_score = float(rec.get("severity") or 0.0)
+        # Blend severity and confidence so low-confidence items are deprioritized.
+        severity_weight = 0.6
+        confidence_weight = 0.4
+        priority_score = round(severity_score * severity_weight + confidence_score * confidence_weight, 1)
+
+        enriched.append(
+            {
+                **rec,
+                "confidence_score": confidence_score,
+                "confidence_label": confidence_label,
+                "confidence_reason": f"Based on {sample_size} shots and {quality_factor * 100:.0f}% data-quality reliability.",
+                "priority_score": priority_score,
+                "priority_formula": {
+                    "severity_weight": severity_weight,
+                    "confidence_weight": confidence_weight,
+                },
+                "priority_reason": (
+                    f"Rank score {priority_score:.1f} = severity {severity_score:.1f} x {severity_weight:.1f} "
+                    f"+ confidence {confidence_score:.1f} x {confidence_weight:.1f}."
+                ),
+            }
+        )
+    enriched.sort(
+        key=lambda rec: (
+            float(rec.get("priority_score") or 0.0),
+            float(rec.get("severity") or 0.0),
+            float(rec.get("confidence_score") or 0.0),
+        ),
+        reverse=True,
+    )
+    return enriched
+
+
 def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str, Any] | None = None) -> dict[str, Any]:
     enriched_sessions = attach_ml_scores(sessions)
 
@@ -812,22 +1340,16 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
 
     session_summaries = [summarize_session(session, pop_weights) for session in enriched_sessions]
 
-    # Compute per-session ratings (requires all session summaries to be ready).
-    session_ratings = score_sessions(session_summaries)
-    for i, summary in enumerate(session_summaries):
-        summary["session_rating"] = session_ratings[i]
-        prev_rating = session_ratings[i - 1] if i > 0 else None
-        curr_rating = session_ratings[i]
-        summary["session_rating_trend"] = (
-            round(curr_rating - prev_rating, 1)
-            if curr_rating is not None and prev_rating is not None
-            else None
-        )
-
     forecasts = build_forecasts(session_summaries)
+    spin_profile = build_spin_profile(club_buckets)
+    tempo_profile = build_tempo_profile(club_buckets)
+    target_control = build_target_control_profile(club_buckets)
+    environment = build_environment_profile(all_shots)
+    data_quality = build_data_quality_profile(enriched_sessions, all_shots)
 
     recommendations = build_recommendations(session_summaries, club_summaries, all_shots)
     latest_session_deltas = build_latest_session_deltas(session_summaries)
+    recommendations = attach_recommendation_confidence(recommendations, club_summaries, data_quality)
     next_session_worklist = build_next_session_worklist(session_summaries, recommendations, latest_session_deltas)
 
     total_shots = sum(session["shot_count"] for session in session_summaries)
@@ -853,8 +1375,6 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
                 "avg_ball_speed": round_or_none(session.get("avg_ball_speed")),
                 "avg_offline_distance": round_or_none(session.get("avg_offline_distance")),
                 "outlier_rate": round_or_none(session.get("outlier_rate") * 100 if session.get("outlier_rate") is not None else None),
-                "session_rating": session.get("session_rating"),
-                "session_rating_trend": session.get("session_rating_trend"),
                 "club_summaries": [
                     {
                         **club,
@@ -909,6 +1429,11 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
             for club in club_summaries
         ],
         "forecasts": forecasts,
+        "spin_profile": spin_profile,
+        "tempo_profile": tempo_profile,
+        "target_control": target_control,
+        "environment": environment,
+        "data_quality": data_quality,
         "previous_forecasts": previous_forecasts or {},
         "recommendations": recommendations,
         "latest_session_deltas": latest_session_deltas,
