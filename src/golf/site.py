@@ -358,6 +358,15 @@ def render_html() -> str:
         text-underline-offset: 3px; font-family: inherit; padding: 0;
       }
       .club-link-btn:hover { color: var(--accent); }
+      .club-nav-pill {
+        display: inline-flex; align-items: center; gap: 4px;
+        background: var(--accent-soft); border: 1.5px solid var(--accent);
+        border-radius: 999px; padding: 6px 16px;
+        font-size: 0.88rem; font-weight: 600; color: var(--accent2);
+        cursor: pointer; font-family: inherit;
+        transition: background 0.15s, color 0.15s;
+      }
+      .club-nav-pill:hover { background: var(--accent); color: #fff; }
 
       /* ── Misc ───────────────────────────────────────── */
       .small { font-size: 0.88rem; color: var(--muted); }
@@ -406,6 +415,13 @@ def render_html() -> str:
 
       <!-- ══ DASHBOARD TAB ════════════════════════════════ -->
       <div class="tab-panel active" id="tab-dashboard" role="tabpanel" aria-labelledby="btn-dashboard">
+
+      <!-- ── Club quick-nav ─────────────────────────────── -->
+      <div class="panel" style="margin-bottom:20px;">
+        <h2 style="margin-bottom:6px;">Clubs</h2>
+        <p class="small" style="margin:0 0 12px">Select a club for carry trend, forecast, dispersion &amp; session breakdown.</p>
+        <div id="club-nav-pills" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+      </div>
 
       <!-- ── Charts ────────────────────────────────────── -->
       <section class="grid charts">
@@ -470,6 +486,7 @@ def render_html() -> str:
       <section class="grid tables">
         <div class="panel">
           <h2>Club summary</h2>
+          <p class="small" style="margin:0 0 10px">Click any club name to open its detail page — carry trend, dispersion, forecast &amp; more.</p>
           <div style="overflow-x:auto;">
             <table>
               <thead>
@@ -1051,6 +1068,20 @@ def render_html() -> str:
         });
         heatmapContainer.appendChild(table);
       }
+
+      // ── Club nav pills ────────────────────────────────────────────────
+      const clubNavPills = document.getElementById("club-nav-pills");
+      data.clubs.forEach((club) => {
+        const pill = document.createElement("button");
+        pill.className = "club-nav-pill";
+        pill.textContent = club.club_label;
+        pill.dataset.club = club.club_label;
+        clubNavPills.appendChild(pill);
+      });
+      clubNavPills.addEventListener("click", (e) => {
+        const pill = e.target.closest(".club-nav-pill");
+        if (pill) showClubDetail(pill.dataset.club);
+      });
 
       // ── Club summary table ────────────────────────────────────────────
       const clubSummaryBody = document.getElementById("club-summary-body");
