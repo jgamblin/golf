@@ -159,6 +159,16 @@ def render_html() -> str:
       .chart-canvas { position: relative; height: 320px; width: 100%; }
       .chart-canvas.tall { height: 420px; }
       .chart-canvas canvas { width: 100% !important; height: 100% !important; }
+      .forecast-callout {
+        margin-top: 10px;
+        padding: 10px 13px;
+        background: var(--accent-soft);
+        border-left: 3px solid var(--accent);
+        border-radius: 6px;
+        font-size: 0.83rem;
+        color: var(--text);
+      }
+      .forecast-callout strong { color: var(--accent2); }
 
       /* ── Club toggles ───────────────────────────────── */
       .club-toggles { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
@@ -371,6 +381,7 @@ def render_html() -> str:
           <div class="chart-canvas">
             <canvas id="sessionTrend"></canvas>
           </div>
+          <div class="forecast-callout" id="trend-forecast-callout" style="display:none;"></div>
         </div>
 
         <div class="panel chart-wrap">
@@ -397,10 +408,10 @@ def render_html() -> str:
         </div>
 
         <div class="panel chart-wrap" style="grid-column: 1 / -1;">
-          <h2>Dispersion map</h2>
-          <div class="club-toggles" id="dispersionToggles"></div>
-          <div class="chart-canvas tall">
-            <canvas id="dispersionChart"></canvas>
+          <h2>Avg offline by club</h2>
+          <p class="small" style="margin:0 0 10px">Average lateral miss per club. Green = within 10 yds &nbsp;|&nbsp; Amber = 10+ yds. Full shot-by-shot scatter is on each club's detail page.</p>
+          <div class="chart-canvas" style="height:200px;">
+            <canvas id="offlineSummaryChart"></canvas>
           </div>
         </div>
 
@@ -588,62 +599,96 @@ def render_html() -> str:
       }
 
       // ── Session trend chart ───────────────────────────────────────────
-      const hasRatingData = data.charts.timeline.session_rating && data.charts.timeline.session_rating.some((v) => v != null);
-      const sessionTrendChart = createChart("sessionTrend", {
-        type: "line",
-        data: {
-          labels: data.charts.timeline.labels,
-          datasets: [
-            {
-              label: "Avg carry (yds)",
-              data: data.charts.timeline.avg_carry_distance,
-              borderColor: "#57b5ff",
-              backgroundColor: "rgba(87, 181, 255, 0.15)",
-              tension: 0.3,
-              yAxisID: "y",
-            },
-            {
-              label: "Avg smash",
-              data: data.charts.timeline.avg_smash_factor,
-              borderColor: "#5fd18b",
-              backgroundColor: "rgba(95, 209, 139, 0.15)",
-              tension: 0.3,
-              yAxisID: "y1",
-            },
-            ...(hasRatingData ? [{
-              label: "Session rating (0–100)",
-              data: data.charts.timeline.session_rating,
-              borderColor: "#ffb454",
-              backgroundColor: "rgba(255, 180, 84, 0.12)",
-              borderDash: [5, 3],
-              tension: 0.3,
-              yAxisID: "y2",
-              pointRadius: 5,
-              pointBackgroundColor: "#ffb454",
-            }] : []),
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: "index", intersect: false },
-          scales: {
-            y: { beginAtZero: false, position: "left" },
-            y1: { beginAtZero: false, position: "right", grid: { drawOnChartArea: false } },
-            ...(hasRatingData ? {
-              y2: {
-                beginAtZero: true,
-                min: 0,
-                max: 100,
-                position: "right",
-                grid: { drawOnChartArea: false },
-                ticks: { callback: (v) => `${v}` },
-                title: { display: true, text: "Rating" },
-              },
-            } : {}),
+      const sessionTrendChart = (() => {
+        const fc = (data.forecasts || {}).per_club || {};
+        const clubsWithFc = Object.entries(fc).filter(([, v]) => v.carry);
+        const actualLabels = data.charts.timeline.labels;
+        const allLabels = clubsWithFc.length ? [...actualLabels, "+1", "+2", "+3"] : actualLabels;
+        const nulls3 = clubsWithFc.length ? [null, null, null] : [];
+
+        const datasets = [
+          {
+            label: "Avg carry (yds)",
+            data: [...data.charts.timeline.avg_carry_distance, ...nulls3],
+            borderColor: "#408114",
+            backgroundColor: "rgba(64,129,20,0.12)",
+            tension: 0.3,
+            yAxisID: "y",
           },
-        },
-      });
+          {
+            label: "Avg smash",
+            data: [...data.charts.timeline.avg_smash_factor, ...nulls3],
+            borderColor: "#1B7114",
+            backgroundColor: "rgba(27,113,20,0.10)",
+            tension: 0.3,
+            yAxisID: "y1",
+          },
+        ];
+
+        if (clubsWithFc.length) {
+          const [, firstClubFc] = clubsWithFc[0];
+          const carry = firstClubFc.carry;
+          const nullPad = actualLabels.map(() => null);
+          datasets.push({
+            label: "Carry forecast",
+            data: [...nullPad, ...carry.predictions],
+            borderColor: "rgba(64,129,20,0.6)",
+            backgroundColor: "transparent",
+            borderDash: [6, 4],
+            borderWidth: 2,
+            pointRadius: [...nullPad.map(() => 0), 3, 3, 3],
+            tension: 0,
+            yAxisID: "y",
+          });
+          datasets.push({
+            label: "_fc_hi",
+            data: [...nullPad, ...carry.confidence_band.map((b) => b[1])],
+            borderColor: "transparent",
+            backgroundColor: "rgba(64,129,20,0.07)",
+            fill: "+1",
+            pointRadius: 0,
+            tension: 0,
+            yAxisID: "y",
+          });
+          datasets.push({
+            label: "_fc_lo",
+            data: [...nullPad, ...carry.confidence_band.map((b) => b[0])],
+            borderColor: "transparent",
+            backgroundColor: "transparent",
+            fill: false,
+            pointRadius: 0,
+            tension: 0,
+            yAxisID: "y",
+          });
+
+          const callout = document.getElementById("trend-forecast-callout");
+          callout.style.display = "block";
+          const dir = carry.slope >= 0 ? "+" : "";
+          const strong = document.createElement("strong");
+          strong.textContent = `Forecast (${clubsWithFc[0][0]}): `;
+          callout.appendChild(strong);
+          callout.appendChild(document.createTextNode(
+            `trending ${dir}${carry.slope.toFixed(1)} yds/session — projected ${carry.predictions[2]} yds in 3 sessions`
+          ));
+        }
+
+        return createChart("sessionTrend", {
+          type: "line",
+          data: { labels: allLabels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+              legend: { labels: { filter: (item) => !item.text.startsWith("_") } },
+            },
+            scales: {
+              y: { beginAtZero: false, position: "left" },
+              y1: { beginAtZero: false, position: "right", grid: { drawOnChartArea: false } },
+            },
+          },
+        });
+      })();
 
       // ── Smash headroom chart (actual vs personal potential) ───────────
       const smashLabels = data.clubs.map((c) => c.club_label);
@@ -797,56 +842,39 @@ def render_html() -> str:
         },
       });
 
-      // ── Dispersion map ────────────────────────────────────────────────
-      const dispersionByClub = {};
-      data.charts.dispersion.forEach((point) => {
-        if (!dispersionByClub[point.club]) dispersionByClub[point.club] = [];
-        dispersionByClub[point.club].push(point);
-      });
-      const dispersionDatasets = Object.entries(dispersionByClub).map(([club, points], index) => ({
-        label: club,
-        data: points.map((p) => ({ x: p.x, y: p.y })),
-        pointRadius: points.map((p) => (p.outlier ? 5 : 4)),
-        pointStyle: points.map((p) => (p.outlier ? "triangle" : "circle")),
-        pointHoverRadius: 7,
-        borderWidth: 0,
-        backgroundColor: points.map((p) =>
-          p.outlier
-            ? COLORS[index % COLORS.length] + "88"
-            : COLORS[index % COLORS.length]
-        ),
-      }));
-      const dispersionChart = createChart("dispersionChart", {
-        type: "scatter",
-        data: { datasets: dispersionDatasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { type: "linear", title: { display: true, text: "Offline / deviation (yds)" } },
-            y: { type: "linear", title: { display: true, text: "Carry distance (yds)" } },
-          },
-        },
-      });
-
-      // Club toggle buttons
-      const togglesContainer = document.getElementById("dispersionToggles");
-      if (togglesContainer && dispersionChart) {
-        Object.keys(dispersionByClub).forEach((club, index) => {
-          const btn = document.createElement("button");
-          btn.className = "club-toggle";
-          btn.textContent = club;
-          btn.style.borderColor = COLORS[index % COLORS.length];
-          btn.addEventListener("click", () => {
-            const meta = dispersionChart.getDatasetMeta(index);
-            meta.hidden = !meta.hidden;
-            btn.classList.toggle("off", meta.hidden);
-            dispersionChart.update();
+      // ── Avg offline summary bar (replaces dashboard scatter) ─────────────
+      (() => {
+        const sorted = [...data.clubs]
+          .filter((c) => c.avg_total_deviation_distance != null || c.avg_carry_deviation_distance != null)
+          .sort((a, b) => {
+            const va = Math.abs(a.avg_total_deviation_distance ?? a.avg_carry_deviation_distance ?? 0);
+            const vb = Math.abs(b.avg_total_deviation_distance ?? b.avg_carry_deviation_distance ?? 0);
+            return vb - va;
           });
-          togglesContainer.appendChild(btn);
+        const labels = sorted.map((c) => c.club_label);
+        const vals = sorted.map((c) => parseFloat(Math.abs(c.avg_total_deviation_distance ?? c.avg_carry_deviation_distance ?? 0).toFixed(1)));
+        createChart("offlineSummaryChart", {
+          type: "bar",
+          data: {
+            labels,
+            datasets: [{
+              label: "Avg offline (yds)",
+              data: vals,
+              backgroundColor: vals.map((v) => v >= 10 ? "rgba(180,83,9,0.7)" : "rgba(64,129,20,0.7)"),
+              borderColor: vals.map((v) => v >= 10 ? "#b45309" : "#408114"),
+              borderWidth: 1.5,
+            }],
+          },
+          options: {
+            indexAxis: "y",
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: { x: { beginAtZero: true, title: { display: true, text: "Absolute offline (yds)" } } },
+            plugins: { legend: { display: false } },
+          },
         });
-      }
+      })();
+      const dispersionChart = null; // replaced by offlineSummaryChart
 
       // ── Miss direction trend chart ────────────────────────────────────
       const missDirectionChart = createChart("missDirectionChart", {
