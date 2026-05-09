@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import defaultdict
-from statistics import pstdev, quantiles
+from statistics import linear_regression, pstdev, quantiles
 from typing import Any
 
 from .ml import score_shot_anomalies
@@ -689,9 +689,8 @@ def score_sessions(session_summaries: list[dict[str, Any]]) -> list[float | None
 
 
 def _linear_forecast(values: list[float], steps: int = 3) -> dict[str, Any]:
-    from statistics import linear_regression as _linreg
     n = len(values)
-    fit = _linreg(list(range(n)), values)
+    fit = linear_regression(list(range(n)), values)
     slope, intercept = fit.slope, fit.intercept
     residuals = [values[i] - (slope * i + intercept) for i in range(n)]
     se = (sum(r * r for r in residuals) / max(n - 2, 1)) ** 0.5
@@ -729,11 +728,11 @@ def build_forecasts(
     for club in set(club_carry) | set(club_smash):
         club_data: dict[str, Any] = {}
         carries = club_carry.get(club, [])
-        smashs = club_smash.get(club, [])
+        smash_values = club_smash.get(club, [])
         if len(carries) >= min_sessions:
             club_data["carry"] = _linear_forecast(carries)
-        if len(smashs) >= min_sessions:
-            club_data["smash"] = _linear_forecast(smashs)
+        if len(smash_values) >= min_sessions:
+            club_data["smash"] = _linear_forecast(smash_values)
         if club_data:
             per_club[club] = club_data
     return {

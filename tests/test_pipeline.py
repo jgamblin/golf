@@ -351,7 +351,7 @@ class TestLinearForecast(unittest.TestCase):
     def test_potential_gap_pct_normal(self) -> None:
         club = {"avg_smash_factor": 1.28, "potential_smash_factor": 1.45}
         result = potential_gap_pct(club)
-        self.assertAlmostEqual(result, 88.3, places=0)
+        self.assertAlmostEqual(result, 88.3, places=1)
 
     def test_potential_gap_pct_missing_returns_none(self) -> None:
         self.assertIsNone(potential_gap_pct({"avg_smash_factor": None, "potential_smash_factor": 1.45}))
