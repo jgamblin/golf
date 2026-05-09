@@ -25,9 +25,9 @@ def render_html() -> str:
         --accent: #408114;
         --accent2: #1B7114;
         --accent-soft: rgba(64, 129, 20, 0.10);
-        --warn: #b45309;
+        --warn: #1E340A;
         --good: #1B7114;
-        --bad: #b45309;
+        --bad: #1E340A;
         --border: rgba(30, 52, 10, 0.12);
       }
 
@@ -346,7 +346,7 @@ def render_html() -> str:
       .velocity-badge { display: inline-block; padding: 4px 11px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; color: #fff; }
       .vel-improved { background: #1B7114; }
       .vel-steady   { background: #4D6E24; }
-      .vel-needed   { background: #b45309; }
+      .vel-needed   { background: #1E340A; }
       .club-stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 22px; }
       .club-stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; }
       .club-stat-card .stat-value { font-size: 1.35rem; }
@@ -595,7 +595,7 @@ def render_html() -> str:
     <script>
       const data = window.GOLF_SITE_DATA;
       const chartGrid = document.querySelector(".charts");
-      const COLORS = ["#408114","#1B7114","#4D6E24","#b45309","#6b7280","#0369a1","#7c3aed","#0d9488"];
+      const COLORS = ["#408114","#1B7114","#4D6E24","#1E340A","#6b7280","#0369a1","#7c3aed","#0d9488"];
 
       const number = (value, digits = 1, suffix = "") => {
         if (value === null || value === undefined || Number.isNaN(value)) return "—";
@@ -889,8 +889,8 @@ def render_html() -> str:
               type: "bar",
               label: "Carry range (avg \u00b1 1 SD)",
               data: bagFloatData,
-              backgroundColor: bagIsBunched.map((b) => b ? "rgba(180, 83, 9, 0.45)" : "rgba(64, 129, 20, 0.35)"),
-              borderColor: bagIsBunched.map((b) => b ? "#b45309" : "#408114"),
+              backgroundColor: bagIsBunched.map((b) => b ? "rgba(30, 52, 10, 0.45)" : "rgba(64, 129, 20, 0.35)"),
+              borderColor: bagIsBunched.map((b) => b ? "#1E340A" : "#408114"),
               borderWidth: 1.5,
               borderSkipped: false,
               order: 2,
@@ -951,8 +951,8 @@ def render_html() -> str:
             datasets: [{
               label: "Avg offline (yds)",
               data: vals,
-              backgroundColor: vals.map((v) => v >= 10 ? "rgba(180,83,9,0.7)" : "rgba(64,129,20,0.7)"),
-              borderColor: vals.map((v) => v >= 10 ? "#b45309" : "#408114"),
+              backgroundColor: vals.map((v) => v >= 10 ? "rgba(30,52,10,0.7)" : "rgba(64,129,20,0.7)"),
+              borderColor: vals.map((v) => v >= 10 ? "#1E340A" : "#408114"),
               borderWidth: 1.5,
             }],
           },
@@ -976,10 +976,10 @@ def render_html() -> str:
               label: "Avg lateral miss (yds)",
               data: data.charts.timeline.miss_direction,
               backgroundColor: data.charts.timeline.miss_direction.map((v) =>
-                v === null ? "transparent" : v > 0 ? "rgba(180, 83, 9, 0.7)" : "rgba(64, 129, 20, 0.7)"
+                v === null ? "transparent" : v > 0 ? "rgba(30, 52, 10, 0.7)" : "rgba(64, 129, 20, 0.7)"
               ),
               borderColor: data.charts.timeline.miss_direction.map((v) =>
-                v === null ? "transparent" : v > 0 ? "#b45309" : "#408114"
+                v === null ? "transparent" : v > 0 ? "#1E340A" : "#408114"
               ),
               borderWidth: 1,
             },
@@ -1030,7 +1030,7 @@ def render_html() -> str:
           if (score == null) return null;
           if (score >= 75) return { bg: "rgba(27, 113, 20, 0.18)", text: "#1B7114" };
           if (score >= 50) return { bg: "rgba(77, 110, 36, 0.18)", text: "#4D6E24" };
-          return { bg: "rgba(180, 83, 9, 0.15)", text: "#b45309" };
+          return { bg: "rgba(30, 52, 10, 0.15)", text: "#1E340A" };
         };
         const table = document.createElement("table");
         table.className = "heatmap-table";
@@ -1463,7 +1463,7 @@ def render_html() -> str:
             pointStyle: points.map((p) => (p.outlier ? "triangle" : "circle")),
             pointHoverRadius: 7,
             borderWidth: 0,
-            backgroundColor: points.map((p) => (p.outlier ? "#b45309" : "#408114") + hex),
+            backgroundColor: points.map((p) => (p.outlier ? "#1E340A" : "#408114") + hex),
           };
         });
         _clubDispChart = createChart("clubDispersionChart", {
