@@ -948,7 +948,6 @@ def render_html() -> str:
           },
         });
       })();
-      const dispersionChart = null; // replaced by offlineSummaryChart
 
       // ── Miss direction trend chart ────────────────────────────────────
       const missDirectionChart = createChart("missDirectionChart", {
@@ -1214,7 +1213,7 @@ def render_html() -> str:
         });
       }
 
-      if (!sessionTrendChart || !clubBarChart || !dispersionChart || !missDirectionChart) {
+      if (!sessionTrendChart || !clubBarChart || !missDirectionChart) {
         showChartError("Some charts could not be initialized. Refresh after the page assets finish loading.");
       }
 
