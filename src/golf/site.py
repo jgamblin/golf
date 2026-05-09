@@ -1236,9 +1236,239 @@ def render_html() -> str:
       const dashboardChildren = Array.from(document.getElementById("tab-dashboard").children)
         .filter((el) => el.id !== "club-detail");
 
+      let _clubCarryChart = null, _clubSmashChart = null, _clubDispChart = null;
+
       function renderClubDetail(clubLabel) {
-        // Placeholder — full implementation in next task
+        const club = data.clubs.find((c) => c.club_label === clubLabel);
+        if (!club) return;
+        [_clubCarryChart, _clubSmashChart, _clubDispChart].forEach((ch) => { if (ch) ch.destroy(); });
+
+        // Header
         document.getElementById("club-detail-name").textContent = clubLabel;
+        const velBadge = document.getElementById("club-velocity-badge");
+        const vel = club.improvement_velocity || "Holding steady";
+        velBadge.textContent = vel;
+        velBadge.className = "velocity-badge " + (vel === "Most improved" ? "vel-improved" : vel === "Work needed" ? "vel-needed" : "vel-steady");
+
+        // Stat strip
+        const strip = document.getElementById("club-stat-strip");
+        strip.innerHTML = "";
+        const offline = club.avg_total_deviation_distance ?? club.avg_carry_deviation_distance;
+        [
+          ["Avg carry", number(club.avg_carry_distance, 1, " yds")],
+          ["Smash factor", number(club.avg_smash_factor, 2)],
+          ["Consistency", number(club.consistency_score, 1)],
+          ["Avg offline", number(offline, 1, " yds")],
+          ["Outlier rate", number(club.outlier_rate, 0, "%")],
+          ["Shots", club.shot_count],
+        ].forEach(([lbl, val]) => {
+          const card = document.createElement("div");
+          card.className = "club-stat-card";
+          const v = document.createElement("div");
+          v.className = "stat-value";
+          v.textContent = val;
+          const l = document.createElement("div");
+          l.className = "stat-label";
+          l.textContent = lbl;
+          card.appendChild(v);
+          card.appendChild(l);
+          strip.appendChild(card);
+        });
+        if (club.potential_gap_pct != null) {
+          const gapCard = document.createElement("div");
+          gapCard.className = "club-stat-card";
+          const gv = document.createElement("div");
+          gv.className = "stat-value";
+          gv.textContent = club.potential_gap_pct.toFixed(0) + "%";
+          const gl = document.createElement("div");
+          gl.className = "stat-label";
+          gl.textContent = "Strike potential";
+          const barWrap = document.createElement("div");
+          barWrap.className = "gap-bar-wrap";
+          const bar = document.createElement("div");
+          bar.className = "gap-bar";
+          bar.style.width = Math.min(100, club.potential_gap_pct) + "%";
+          barWrap.appendChild(bar);
+          gapCard.appendChild(gv);
+          gapCard.appendChild(gl);
+          gapCard.appendChild(barWrap);
+          strip.appendChild(gapCard);
+        }
+
+        // Prediction callout
+        const predCallout = document.getElementById("club-prediction-callout");
+        predCallout.innerHTML = "";
+        const clubFc = ((data.forecasts || {}).per_club || {})[clubLabel];
+        if (clubFc && clubFc.carry) {
+          const band = clubFc.carry.confidence_band[0];
+          const callout = document.createElement("div");
+          callout.className = "forecast-callout";
+          callout.style.marginTop = "12px";
+          const strong = document.createElement("strong");
+          strong.textContent = "Next session: ";
+          callout.appendChild(strong);
+          callout.appendChild(document.createTextNode(
+            `carry forecast ${band[0]}–${band[1]} yds (trending ${clubFc.carry.slope >= 0 ? "+" : ""}${clubFc.carry.slope.toFixed(1)} yds/session)`
+          ));
+          predCallout.appendChild(callout);
+        }
+
+        // Carry trend + forecast chart
+        const sessionDates = [];
+        const perSessionCarry = [];
+        data.sessions.forEach((s) => {
+          const cs = (s.club_summaries || []).find((c) => c.club_label === clubLabel);
+          if (!cs) return;
+          sessionDates.push(
+            s.session_timestamp
+              ? new Date(s.session_timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+              : s.source_file.slice(0, 10)
+          );
+          perSessionCarry.push(cs.avg_carry_distance != null ? parseFloat(cs.avg_carry_distance.toFixed(1)) : null);
+        });
+
+        let carryLabels = [...sessionDates];
+        const carryDatasets = [{
+          label: "Avg carry (yds)",
+          data: [...perSessionCarry],
+          borderColor: "#408114",
+          backgroundColor: "rgba(64,129,20,0.12)",
+          tension: 0.3,
+          pointRadius: 5,
+        }];
+
+        if (clubFc && clubFc.carry) {
+          carryLabels = [...sessionDates, "+1", "+2", "+3"];
+          const nullPad = sessionDates.map(() => null);
+          const lastVal = perSessionCarry[perSessionCarry.length - 1];
+          carryDatasets[0].data = [...perSessionCarry, null, null, null];
+          carryDatasets.push({
+            label: "Forecast",
+            data: [...nullPad.slice(0, -1), lastVal, ...clubFc.carry.predictions],
+            borderColor: "rgba(64,129,20,0.55)",
+            backgroundColor: "transparent",
+            borderDash: [6, 4],
+            borderWidth: 2,
+            pointRadius: [...nullPad.slice(0, -1).map(() => 0), 5, 3, 3, 3],
+            tension: 0,
+          });
+          const prevFc = ((data.previous_forecasts || {}).per_club || {})[clubLabel];
+          if (prevFc && prevFc.carry) {
+            carryDatasets.push({
+              label: "Previous forecast",
+              data: [...nullPad.slice(0, -1), prevFc.carry.last_actual, ...prevFc.carry.predictions.slice(0, 3)],
+              borderColor: "rgba(77,110,36,0.35)",
+              backgroundColor: "transparent",
+              borderDash: [3, 4],
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0,
+            });
+          }
+          const cc = document.getElementById("club-carry-callout");
+          cc.style.display = "block";
+          const strong = document.createElement("strong");
+          strong.textContent = "Forecast: ";
+          cc.innerHTML = "";
+          cc.appendChild(strong);
+          cc.appendChild(document.createTextNode(
+            `trending ${clubFc.carry.slope >= 0 ? "+" : ""}${clubFc.carry.slope.toFixed(1)} yds/session — projected ${clubFc.carry.predictions[2]} yds in 3 sessions`
+          ));
+        } else {
+          document.getElementById("club-carry-callout").style.display = "none";
+        }
+
+        _clubCarryChart = createChart("clubCarryChart", {
+          type: "line",
+          data: { labels: carryLabels, datasets: carryDatasets },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            scales: { y: { beginAtZero: false, title: { display: true, text: "Carry (yds)" } } },
+          },
+        });
+
+        // Smash vs potential chart
+        const smashVals = sessionDates.map((_, i) => {
+          const s = data.sessions[i];
+          const cs = s && (s.club_summaries || []).find((c) => c.club_label === clubLabel);
+          return cs && cs.avg_smash_factor != null ? parseFloat(cs.avg_smash_factor.toFixed(3)) : null;
+        });
+        _clubSmashChart = createChart("clubSmashChart", {
+          type: "bar",
+          data: {
+            labels: sessionDates,
+            datasets: [
+              { type: "bar", label: "Avg smash factor", data: smashVals, backgroundColor: "rgba(64,129,20,0.65)", borderColor: "#408114", borderWidth: 1, order: 2 },
+              { type: "line", label: "Personal ceiling (90th %ile)", data: sessionDates.map(() => club.potential_smash_factor), borderColor: "#1B7114", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0, order: 1 },
+            ],
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: { y: { beginAtZero: false, min: 0.9, title: { display: true, text: "Smash factor" } } },
+            plugins: { legend: { position: "top" } },
+          },
+        });
+
+        // Dispersion scatter with session-age opacity fade
+        const totalSess = data.sessions.length;
+        const ageOpacity = (age) => age === 0 ? 1.0 : age === 1 ? 0.55 : age === 2 ? 0.25 : 0.12;
+        const dispBySession = {};
+        (data.charts.dispersion || []).forEach((pt) => {
+          if (pt.club !== clubLabel) return;
+          const idx = pt.session_index ?? 0;
+          (dispBySession[idx] = dispBySession[idx] || []).push(pt);
+        });
+        const dispDatasets = Object.entries(dispBySession).map(([idxStr, points]) => {
+          const idx = parseInt(idxStr, 10);
+          const age = totalSess - 1 - idx;
+          const hex = Math.round(ageOpacity(age) * 255).toString(16).padStart(2, "0");
+          const sessDate = data.sessions[idx]
+            ? new Date(data.sessions[idx].session_timestamp || "").toLocaleDateString(undefined, { month: "short", day: "numeric" })
+            : `Session ${idx + 1}`;
+          return {
+            label: age === 0 ? `${sessDate} (latest)` : sessDate,
+            data: points.map((p) => ({ x: p.x, y: p.y })),
+            pointRadius: points.map((p) => (p.outlier ? 6 : 4)),
+            pointStyle: points.map((p) => (p.outlier ? "triangle" : "circle")),
+            pointHoverRadius: 7,
+            borderWidth: 0,
+            backgroundColor: points.map((p) => (p.outlier ? "#b45309" : "#408114") + hex),
+          };
+        });
+        _clubDispChart = createChart("clubDispersionChart", {
+          type: "scatter",
+          data: { datasets: dispDatasets },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: "top" } },
+            scales: {
+              x: { type: "linear", title: { display: true, text: "Offline / deviation (yds)" } },
+              y: { type: "linear", title: { display: true, text: "Carry distance (yds)" } },
+            },
+          },
+        });
+
+        // Session breakdown table
+        const tbody = document.getElementById("club-session-table-body");
+        tbody.innerHTML = "";
+        data.sessions.forEach((s) => {
+          const cs = (s.club_summaries || []).find((c) => c.club_label === clubLabel);
+          if (!cs) return;
+          const dateStr = s.session_timestamp
+            ? new Date(s.session_timestamp).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+            : s.source_file;
+          const offlineVal = cs.avg_total_deviation_distance ?? cs.avg_carry_deviation_distance;
+          const row = document.createElement("tr");
+          ["", "", "", "", "", ""].forEach(() => row.insertCell());
+          row.cells[0].textContent = dateStr;
+          row.cells[1].textContent = cs.shot_count;
+          row.cells[2].textContent = number(cs.avg_carry_distance, 1, " yds");
+          row.cells[3].textContent = number(cs.avg_smash_factor, 2);
+          row.cells[4].textContent = number(offlineVal, 1, " yds");
+          row.cells[5].textContent = number(cs.consistency_score, 1);
+          tbody.appendChild(row);
+        });
       }
 
       function showClubDetail(clubLabel) {
