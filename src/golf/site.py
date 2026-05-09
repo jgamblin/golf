@@ -327,6 +327,38 @@ def render_html() -> str:
         gap: 24px;
       }
 
+      /* ── Club detail panel ──────────────────────────── */
+      .club-detail { display: none; }
+      .club-detail.active { display: block; }
+      .back-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: none; border: 1.5px solid var(--border); border-radius: 8px;
+        padding: 7px 14px; font-size: 0.88rem; font-weight: 600; color: var(--muted);
+        cursor: pointer; margin-bottom: 20px; font-family: inherit;
+        transition: color 0.15s, border-color 0.15s;
+      }
+      .back-btn:hover { color: var(--accent); border-color: var(--accent); }
+      .club-detail-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+      .club-detail-name {
+        font-family: 'Playfair Display', Georgia, serif;
+        font-size: 1.9rem; font-weight: 700; color: var(--text);
+      }
+      .velocity-badge { display: inline-block; padding: 4px 11px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; color: #fff; }
+      .vel-improved { background: #1B7114; }
+      .vel-steady   { background: #4D6E24; }
+      .vel-needed   { background: #b45309; }
+      .club-stat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 22px; }
+      .club-stat-card { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; }
+      .club-stat-card .stat-value { font-size: 1.35rem; }
+      .gap-bar-wrap { margin-top: 6px; height: 6px; background: var(--border); border-radius: 3px; }
+      .gap-bar { height: 6px; border-radius: 3px; background: var(--accent); }
+      .club-link-btn {
+        background: none; border: none; color: var(--accent2); font-weight: 600;
+        font-size: 0.95rem; cursor: pointer; text-decoration: underline;
+        text-underline-offset: 3px; font-family: inherit; padding: 0;
+      }
+      .club-link-btn:hover { color: var(--accent); }
+
       /* ── Misc ───────────────────────────────────────── */
       .small { font-size: 0.88rem; color: var(--muted); }
       .delta { font-weight: 700; white-space: nowrap; }
@@ -478,6 +510,46 @@ def render_html() -> str:
           </div>
         </div>
       </section>
+
+      <!-- ── Club detail panel ────────────────────────── -->
+      <div class="club-detail" id="club-detail">
+        <button class="back-btn" id="club-back-btn">&#8592; Back to overview</button>
+        <div class="panel">
+          <div class="club-detail-header">
+            <span class="club-detail-name" id="club-detail-name"></span>
+            <span class="velocity-badge" id="club-velocity-badge"></span>
+          </div>
+          <div class="club-stat-strip" id="club-stat-strip"></div>
+          <div id="club-prediction-callout"></div>
+        </div>
+        <div class="grid charts" style="margin-top:16px;">
+          <div class="panel chart-wrap">
+            <h2>Carry trend &amp; forecast</h2>
+            <div class="chart-canvas"><canvas id="clubCarryChart"></canvas></div>
+            <div class="forecast-callout" id="club-carry-callout" style="display:none;"></div>
+          </div>
+          <div class="panel chart-wrap">
+            <h2>Smash factor vs potential</h2>
+            <div class="chart-canvas"><canvas id="clubSmashChart"></canvas></div>
+          </div>
+          <div class="panel chart-wrap" style="grid-column: 1 / -1;">
+            <h2>Shot dispersion</h2>
+            <p class="small" style="margin:0 0 10px">Most recent session = full opacity. Older sessions fade. Triangles = outliers.</p>
+            <div class="chart-canvas tall"><canvas id="clubDispersionChart"></canvas></div>
+          </div>
+        </div>
+        <div class="panel" style="margin-top:16px;">
+          <h2>Session breakdown</h2>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead><tr>
+                <th>Date</th><th>Shots</th><th>Avg carry</th><th>Smash</th><th>Offline</th><th>Consistency</th>
+              </tr></thead>
+              <tbody id="club-session-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
 
       </div>
       <!-- ══ end DASHBOARD TAB ═══════════════════════════ -->
@@ -986,16 +1058,34 @@ def render_html() -> str:
       data.clubs.forEach((club) => {
         const row = document.createElement("tr");
         const offline = club.avg_total_deviation_distance ?? club.avg_carry_deviation_distance;
-        row.innerHTML = `
-          <td>${club.club_label}</td>
+        // First cell: button built with DOM methods (no untrusted innerHTML)
+        const nameTd = document.createElement("td");
+        const linkBtn = document.createElement("button");
+        linkBtn.className = "club-link-btn";
+        linkBtn.dataset.club = club.club_label;
+        linkBtn.textContent = club.club_label;
+        linkBtn.appendChild(document.createTextNode(" ↗"));
+        nameTd.appendChild(linkBtn);
+        row.appendChild(nameTd);
+        // Remaining cells are numeric/formatted values (no user input)
+        const restTd = document.createElement("tbody");
+        restTd.innerHTML = `
+          <tr>
           <td>${club.shot_count}</td>
           <td>${number(club.avg_carry_distance, 1, " yds")}</td>
           <td>${number(club.avg_smash_factor, 2)}</td>
           <td>${number(offline, 1, " yds")}</td>
           <td>${number(club.consistency_score, 1)}</td>
           <td>${number(club.outlier_rate, 0, "%")}</td>
+          </tr>
         `;
+        const cells = restTd.rows[0].cells;
+        for (let i = 0; i < cells.length; i++) row.appendChild(cells[0]);
         clubSummaryBody.appendChild(row);
+      });
+      document.getElementById("club-summary-body").addEventListener("click", (e) => {
+        const btn = e.target.closest(".club-link-btn");
+        if (btn) showClubDetail(btn.dataset.club);
       });
 
       // ── Session cards (date + structured stats) ───────────────────────
@@ -1140,6 +1230,29 @@ def render_html() -> str:
           document.getElementById(btn.getAttribute("aria-controls")).classList.add("active");
         });
       });
+
+      // ── Club detail navigation ────────────────────────────────────────────
+      const clubDetailPanel = document.getElementById("club-detail");
+      const dashboardChildren = Array.from(document.getElementById("tab-dashboard").children)
+        .filter((el) => el.id !== "club-detail");
+
+      function renderClubDetail(clubLabel) {
+        // Placeholder — full implementation in next task
+        document.getElementById("club-detail-name").textContent = clubLabel;
+      }
+
+      function showClubDetail(clubLabel) {
+        dashboardChildren.forEach((el) => { el.style.display = "none"; });
+        clubDetailPanel.classList.add("active");
+        renderClubDetail(clubLabel);
+      }
+
+      function hideClubDetail() {
+        dashboardChildren.forEach((el) => { el.style.display = ""; });
+        clubDetailPanel.classList.remove("active");
+      }
+
+      document.getElementById("club-back-btn").addEventListener("click", hideClubDetail);
     </script>
   </body>
 </html>
