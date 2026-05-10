@@ -398,13 +398,13 @@ def render_html() -> str:
       .path-marker { position: absolute; top: 18px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 92px; }
       .path-marker-dot { width: 16px; height: 16px; border-radius: 999px; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(30,52,10,0.14); }
       .path-marker-label { background: rgba(255,255,255,0.92); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 0.76rem; font-weight: 700; color: var(--text); }
-      .path-metrics { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-      .path-metric { background: rgba(242,242,240,0.9); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
-      .path-metric .value { font-size: 1.3rem; font-weight: 800; color: var(--text); line-height: 1; }
-      .path-metric .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; margin-top: 2px; }
-      .path-metric .gauge { margin-top: 10px; height: 8px; background: rgba(30,52,10,0.08); border-radius: 999px; overflow: hidden; }
+      .path-metrics { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 12px; }
+      .path-metric { background: rgba(242,242,240,0.9); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; }
+      .path-metric .value { font-size: 1.4rem; font-weight: 800; color: var(--text); line-height: 1; order: 1; }
+      .path-metric .label { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; margin-top: 4px; order: 2; }
+      .path-metric .gauge { margin-top: 8px; height: 6px; background: rgba(30,52,10,0.08); border-radius: 999px; overflow: hidden; order: 3; }
       .path-metric .gauge-fill { height: 100%; border-radius: 999px; transition: all 0.2s ease; }
-      .path-metric .direction { font-size: 0.75rem; color: var(--muted); margin-top: 6px; font-weight: 600; }
+      .path-metric .direction { font-size: 0.7rem; color: var(--muted); margin-top: 6px; font-weight: 600; order: 4; }
       .site-footer {
         margin-top: 24px;
         padding-top: 14px;
