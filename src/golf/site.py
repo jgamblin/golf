@@ -971,7 +971,10 @@ def render_clubs_page() -> str:
             <p class=\"small\" style=\"margin:0;\">Positive values move right; negative values move left. The cloud shows the shot-by-shot relationship between club path and face-to-path.</p>
           </div>
           <div class=\"panel\" style=\"display:flex;flex-direction:column;gap:12px;\">
-            <div class=\"small\" style=\"text-transform:uppercase;letter-spacing:0.08em;font-weight:700;\">Path Cloud</div>
+            <div style=\"display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;\">
+              <div class=\"small\" style=\"text-transform:uppercase;letter-spacing:0.08em;font-weight:700;\">Path Cloud</div>
+              <div id=\"path-cloud-filter-lab\" style=\"display:flex;gap:6px;\"></div>
+            </div>
             <div class=\"chart-canvas small\"><canvas id=\"clubPathCloudLab\"></canvas></div>
           </div>
         </div>
@@ -1360,23 +1363,40 @@ def render_clubs_page() -> str:
             carryCallout.style.display = "none";
           }
 
-          if (window.Chart) {
-            const pathPoints = (data.charts.path_cloud || []).filter((point) => point.club === clubLabel);
-            const pathValues = pathPoints.flatMap((point) => [point.x, point.y]);
+          // Setup path cloud session filter
+          const pathCloudFilterContainer = document.getElementById("path-cloud-filter-lab");
+          let currentSessionFilter = "all";
+          const totalSessions = data.sessions.length;
+          
+          const createPathCloudChart = (sessionFilter) => {
+            let filteredPathPoints = (data.charts.path_cloud || []).filter((point) => point.club === clubLabel);
+            
+            // Filter by session range
+            if (sessionFilter === "last1" && totalSessions > 0) {
+              const minSessionIdx = totalSessions - 1;
+              filteredPathPoints = filteredPathPoints.filter((point) => point.session_index >= minSessionIdx);
+            } else if (sessionFilter === "last3" && totalSessions > 0) {
+              const minSessionIdx = Math.max(0, totalSessions - 3);
+              filteredPathPoints = filteredPathPoints.filter((point) => point.session_index >= minSessionIdx);
+            }
+            
+            const pathValues = filteredPathPoints.flatMap((point) => [point.x, point.y]);
             const minVal = pathValues.length ? Math.min(...pathValues, club.avg_club_path ?? 0, club.avg_face_to_path ?? 0) : -8;
             const maxVal = pathValues.length ? Math.max(...pathValues, club.avg_club_path ?? 0, club.avg_face_to_path ?? 0) : 8;
             const clampMin = Math.min(-8, Math.floor(minVal) - 1);
             const clampMax = Math.max(8, Math.ceil(maxVal) + 1);
+            
+            if (clubPathCloudChart) clubPathCloudChart.destroy();
             clubPathCloudChart = new window.Chart(document.getElementById("clubPathCloudLab"), {
               type: "scatter",
               data: {
                 datasets: [
                   {
                     label: "Shot cloud",
-                    data: pathPoints.map((point) => ({ x: point.x, y: point.y })),
-                    backgroundColor: pathPoints.map((point) => point.outlier ? "#1E340A" : "rgba(64,129,20,0.65)"),
-                    pointRadius: pathPoints.map((point) => point.outlier ? 5 : 4),
-                    pointStyle: pathPoints.map((point) => point.outlier ? "triangle" : "circle"),
+                    data: filteredPathPoints.map((point) => ({ x: point.x, y: point.y })),
+                    backgroundColor: filteredPathPoints.map((point) => point.outlier ? "#1E340A" : "rgba(64,129,20,0.65)"),
+                    pointRadius: filteredPathPoints.map((point) => point.outlier ? 5 : 4),
+                    pointStyle: filteredPathPoints.map((point) => point.outlier ? "triangle" : "circle"),
                   },
                   {
                     label: "Club average",
@@ -1405,6 +1425,37 @@ def render_clubs_page() -> str:
                 },
               },
             });
+          };
+          
+          // Create filter buttons
+          ["all", "last3", "last1"].forEach((filter) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.textContent = filter === "all" ? "All data" : filter === "last3" ? "Last 3" : "Last 1";
+            button.style.border = "1px solid rgba(30,52,10,0.12)";
+            button.style.background = filter === currentSessionFilter ? "#408114" : "#fff";
+            button.style.color = filter === currentSessionFilter ? "#fff" : "#1B7114";
+            button.style.borderRadius = "6px";
+            button.style.padding = "4px 10px";
+            button.style.fontWeight = "600";
+            button.style.fontSize = "0.85rem";
+            button.style.cursor = "pointer";
+            button.style.fontFamily = "inherit";
+            button.style.transition = "all 0.15s ease";
+            button.onclick = () => {
+              currentSessionFilter = filter;
+              document.querySelectorAll("#path-cloud-filter-lab button").forEach((btn) => {
+                const isActive = btn.textContent === button.textContent;
+                btn.style.background = isActive ? "#408114" : "#fff";
+                btn.style.color = isActive ? "#fff" : "#1B7114";
+              });
+              createPathCloudChart(filter);
+            };
+            pathCloudFilterContainer.appendChild(button);
+          });
+
+          if (window.Chart) {
+            createPathCloudChart(currentSessionFilter);
             clubCarryChart = new window.Chart(document.getElementById("clubCarryChartLab"), {
               type: "line",
               data: { labels: carryChartLabels, datasets: carryDatasets },
