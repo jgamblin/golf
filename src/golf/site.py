@@ -398,10 +398,13 @@ def render_html() -> str:
       .path-marker { position: absolute; top: 18px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 92px; }
       .path-marker-dot { width: 16px; height: 16px; border-radius: 999px; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(30,52,10,0.14); }
       .path-marker-label { background: rgba(255,255,255,0.92); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 0.76rem; font-weight: 700; color: var(--text); }
-      .path-metrics { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-      .path-metric { background: rgba(242,242,240,0.86); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
-      .path-metric .value { font-size: 1.2rem; font-weight: 800; color: var(--text); }
-      .path-metric .label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
+      .path-metrics { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+      .path-metric { background: rgba(242,242,240,0.9); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+      .path-metric .value { font-size: 1.3rem; font-weight: 800; color: var(--text); line-height: 1; }
+      .path-metric .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; margin-top: 2px; }
+      .path-metric .gauge { margin-top: 10px; height: 8px; background: rgba(30,52,10,0.08); border-radius: 999px; overflow: hidden; }
+      .path-metric .gauge-fill { height: 100%; border-radius: 999px; transition: all 0.2s ease; }
+      .path-metric .direction { font-size: 0.75rem; color: var(--muted); margin-top: 6px; font-weight: 600; }
       .site-footer {
         margin-top: 24px;
         padding-top: 14px;
@@ -1263,6 +1266,27 @@ def render_clubs_page() -> str:
 
           const pathMetrics = document.getElementById("club-path-metrics-lab");
           pathMetrics.innerHTML = "";
+          
+          const getGaugeInfo = (metricName, value) => {
+            value = Number(value) || 0;
+            if (metricName === "Club path") {
+              if (Math.abs(value) <= 2) return { color: "#408114", direction: "Neutral" };
+              if (value > 0) return { color: value > 5 ? "#D4721C" : "#408114", direction: "Out-to-in" };
+              return { color: value < -5 ? "#D4721C" : "#408114", direction: "In-to-out" };
+            }
+            if (metricName === "Face to path") {
+              if (Math.abs(value) <= 1) return { color: "#408114", direction: "Square" };
+              if (value > 0) return { color: value > 3 ? "#D4721C" : "#408114", direction: "Open" };
+              return { color: value < -3 ? "#D4721C" : "#408114", direction: "Closed" };
+            }
+            if (metricName === "Attack angle") {
+              if (value >= 10 && value <= 25) return { color: "#408114", direction: "Optimal" };
+              if (value < 10) return { color: "#D4721C", direction: "Too shallow" };
+              return { color: "#D4721C", direction: "Too steep" };
+            }
+            return { color: "#666", direction: "" };
+          };
+          
           [
             ["Club path", club.avg_club_path, 2, " deg"],
             ["Face to path", club.avg_face_to_path, 2, " deg"],
@@ -1270,7 +1294,10 @@ def render_clubs_page() -> str:
           ].forEach(([label, value, digits, suffix]) => {
             const metric = document.createElement("div");
             metric.className = "path-metric";
-            metric.innerHTML = `<div class="value">${number(value, digits, suffix)}</div><div class="label">${label}</div>`;
+            const numVal = Number(value) || 0;
+            const info = getGaugeInfo(label, numVal);
+            const gaugeWidth = Math.max(5, Math.min(100, label === "Attack angle" ? (numVal / 30) * 100 : (Math.abs(numVal) / 20) * 100));
+            metric.innerHTML = `<div class="value">${number(value, digits, suffix)}</div><div class="label">${label}</div><div class="gauge"><div class="gauge-fill" style="background:${info.color};width:${gaugeWidth}%;"></div></div><div class="direction">${info.direction}</div>`;
             pathMetrics.appendChild(metric);
           });
           const clampPct = (value) => Math.max(6, Math.min(94, 50 + (Number(value) || 0) * 4.5));
