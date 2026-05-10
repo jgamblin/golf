@@ -1320,65 +1320,73 @@ def render_clubs_page() -> str:
             predictionCallout.appendChild(callout);
           }
 
-          const sessionRows = [];
-          (data.sessions || []).forEach((session) => {
-            const summary = (session.club_summaries || []).find((item) => item.club_label === clubLabel);
-            if (summary) sessionRows.push({ session, summary });
-          });
-          const sessionLabels = sessionRows.map(({ session }) =>
-            session.session_timestamp
-              ? new Date(session.session_timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-              : String(session.source_file || "session").slice(0, 10)
-          );
-          const carryValues = sessionRows.map(({ summary }) => summary.avg_carry_distance != null ? parseFloat(summary.avg_carry_distance.toFixed(1)) : null);
-          const smashValues = sessionRows.map(({ summary }) => summary.avg_smash_factor != null ? parseFloat(summary.avg_smash_factor.toFixed(3)) : null);
-
-          let carryChartLabels = [...sessionLabels];
-          const carryDatasets = [{
-            label: "Avg carry (yds)",
-            data: [...carryValues],
-            borderColor: "#408114",
-            backgroundColor: "rgba(64,129,20,0.12)",
-            tension: 0.3,
-            pointRadius: 4,
-          }];
-          const carryCallout = document.getElementById("club-carry-callout-lab");
-          if (clubForecast && clubForecast.carry && carryValues.length) {
-            carryChartLabels = [...sessionLabels, "+1", "+2", "+3"];
-            const nullPad = sessionLabels.map(() => null);
-            carryDatasets[0].data = [...carryValues, null, null, null];
-            carryDatasets.push({
-              label: "Forecast",
-              data: [...nullPad.slice(0, -1), carryValues[carryValues.length - 1], ...clubForecast.carry.predictions],
-              borderColor: "rgba(64,129,20,0.55)",
-              backgroundColor: "transparent",
-              borderDash: [6, 4],
-              borderWidth: 2,
-              pointRadius: [...nullPad.slice(0, -1).map(() => 0), 4, 3, 3, 3],
-              tension: 0,
-            });
-            carryCallout.style.display = "block";
-            carryCallout.innerHTML = `<strong>Forecast:</strong> projected ${clubForecast.carry.predictions[2]} yds in 3 sessions.`;
-          } else {
-            carryCallout.style.display = "none";
-          }
-
-          // Setup path cloud session filter
+          // Setup session filter that applies to all club data
           const pathCloudFilterContainer = document.getElementById("path-cloud-filter-lab");
           let currentSessionFilter = "all";
           const totalSessions = data.sessions.length;
           
-          const createPathCloudChart = (sessionFilter) => {
-            let filteredPathPoints = (data.charts.path_cloud || []).filter((point) => point.club === clubLabel);
-            
-            // Filter by session range
-            if (sessionFilter === "last1" && totalSessions > 0) {
-              const minSessionIdx = totalSessions - 1;
-              filteredPathPoints = filteredPathPoints.filter((point) => point.session_index >= minSessionIdx);
-            } else if (sessionFilter === "last3" && totalSessions > 0) {
-              const minSessionIdx = Math.max(0, totalSessions - 3);
-              filteredPathPoints = filteredPathPoints.filter((point) => point.session_index >= minSessionIdx);
+          const getFilteredSessionIndices = (filter) => {
+            if (filter === "last1" && totalSessions > 0) {
+              return [totalSessions - 1];
+            } else if (filter === "last3" && totalSessions > 0) {
+              return Array.from({ length: Math.min(3, totalSessions) }, (_, i) => totalSessions - 3 + i).filter(i => i >= 0);
             }
+            return Array.from({ length: totalSessions }, (_, i) => i);
+          };
+          
+          const renderAllCharts = (sessionFilter) => {
+            // Get filtered session indices
+            const filteredIndices = getFilteredSessionIndices(sessionFilter);
+            
+            // Filter session rows
+            const allSessionRows = [];
+            (data.sessions || []).forEach((session, sIdx) => {
+              const summary = (session.club_summaries || []).find((item) => item.club_label === clubLabel);
+              if (summary) allSessionRows.push({ session, summary, sessionIndex: sIdx });
+            });
+            const sessionRows = allSessionRows.filter((row) => filteredIndices.includes(row.sessionIndex));
+            
+            const sessionLabels = sessionRows.map(({ session }) =>
+              session.session_timestamp
+                ? new Date(session.session_timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                : String(session.source_file || "session").slice(0, 10)
+            );
+            const carryValues = sessionRows.map(({ summary }) => summary.avg_carry_distance != null ? parseFloat(summary.avg_carry_distance.toFixed(1)) : null);
+            const smashValues = sessionRows.map(({ summary }) => summary.avg_smash_factor != null ? parseFloat(summary.avg_smash_factor.toFixed(3)) : null);
+
+            let carryChartLabels = [...sessionLabels];
+            const carryDatasets = [{
+              label: "Avg carry (yds)",
+              data: [...carryValues],
+              borderColor: "#408114",
+              backgroundColor: "rgba(64,129,20,0.12)",
+              tension: 0.3,
+              pointRadius: 4,
+            }];
+            const carryCallout = document.getElementById("club-carry-callout-lab");
+            if (clubForecast && clubForecast.carry && carryValues.length && sessionFilter === "all") {
+              carryChartLabels = [...sessionLabels, "+1", "+2", "+3"];
+              const nullPad = sessionLabels.map(() => null);
+              carryDatasets[0].data = [...carryValues, null, null, null];
+              carryDatasets.push({
+                label: "Forecast",
+                data: [...nullPad.slice(0, -1), carryValues[carryValues.length - 1], ...clubForecast.carry.predictions],
+                borderColor: "rgba(64,129,20,0.55)",
+                backgroundColor: "transparent",
+                borderDash: [6, 4],
+                borderWidth: 2,
+                pointRadius: [...nullPad.slice(0, -1).map(() => 0), 4, 3, 3, 3],
+                tension: 0,
+              });
+              carryCallout.style.display = "block";
+              carryCallout.innerHTML = `<strong>Forecast:</strong> projected ${clubForecast.carry.predictions[2]} yds in 3 sessions.`;
+            } else {
+              carryCallout.style.display = "none";
+            }
+
+            // Path Cloud Chart
+            let filteredPathPoints = (data.charts.path_cloud || []).filter((point) => point.club === clubLabel);
+            filteredPathPoints = filteredPathPoints.filter((point) => filteredIndices.includes(point.session_index ?? 0));
             
             const pathValues = filteredPathPoints.flatMap((point) => [point.x, point.y]);
             const minVal = pathValues.length ? Math.min(...pathValues, club.avg_club_path ?? 0, club.avg_face_to_path ?? 0) : -8;
@@ -1425,6 +1433,89 @@ def render_clubs_page() -> str:
                 },
               },
             });
+
+            if (window.Chart) {
+              if (clubCarryChart) clubCarryChart.destroy();
+              clubCarryChart = new window.Chart(document.getElementById("clubCarryChartLab"), {
+                type: "line",
+                data: { labels: carryChartLabels, datasets: carryDatasets },
+                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false } },
+              });
+              
+              if (clubSmashChart) clubSmashChart.destroy();
+              clubSmashChart = new window.Chart(document.getElementById("clubSmashChartLab"), {
+                type: "bar",
+                data: {
+                  labels: sessionLabels,
+                  datasets: [
+                    { type: "bar", label: "Avg smash factor", data: smashValues, backgroundColor: "rgba(64,129,20,0.65)", borderColor: "#408114", borderWidth: 1, order: 2 },
+                    { type: "line", label: "Personal ceiling", data: sessionLabels.map(() => club.potential_smash_factor), borderColor: "#1B7114", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0, order: 1 },
+                  ],
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "top" } }, scales: { y: { beginAtZero: false, min: 0.9 } } },
+              });
+
+              // Dispersion Chart
+              const dispersionGroups = {};
+              (data.charts.dispersion || []).forEach((point) => {
+                if (point.club !== clubLabel) return;
+                const idx = point.session_index ?? 0;
+                if (filteredIndices.includes(idx)) {
+                  if (!dispersionGroups[idx]) dispersionGroups[idx] = [];
+                  dispersionGroups[idx].push(point);
+                }
+              });
+              
+              if (clubDispersionChart) clubDispersionChart.destroy();
+              clubDispersionChart = new window.Chart(document.getElementById("clubDispersionChartLab"), {
+                type: "scatter",
+                data: {
+                  datasets: Object.entries(dispersionGroups).map(([idxStr, points]) => {
+                    const idx = Number(idxStr);
+                    const age = totalSessions - 1 - idx;
+                    const opacity = age <= 0 ? "ff" : age === 1 ? "99" : age === 2 ? "55" : "30";
+                    const label = data.sessions[idx]?.session_timestamp
+                      ? new Date(data.sessions[idx].session_timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                      : `Session ${idx + 1}`;
+                    return {
+                      label,
+                      data: points.map((point) => ({ x: point.x, y: point.y })),
+                      pointRadius: points.map((point) => point.outlier ? 6 : 4),
+                      pointStyle: points.map((point) => point.outlier ? "triangle" : "circle"),
+                      backgroundColor: points.map((point) => (point.outlier ? "#1E340A" : "#408114") + opacity),
+                    };
+                  }),
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: { legend: { position: "top" } },
+                  scales: {
+                    x: { type: "linear", title: { display: true, text: "Offline / deviation (yds)" } },
+                    y: { type: "linear", title: { display: true, text: "Carry distance (yds)" } },
+                  },
+                },
+              });
+            }
+
+            // Session Table
+            const sessionTableBody = document.getElementById("club-session-table-body-lab");
+            sessionTableBody.innerHTML = "";
+            sessionRows.forEach(({ session, summary }) => {
+              const date = session.session_timestamp
+                ? new Date(session.session_timestamp).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
+                : session.source_file;
+              const row = document.createElement("tr");
+              row.innerHTML = `
+                <td>${date}</td>
+                <td>${summary.shot_count ?? "—"}</td>
+                <td>${number(summary.avg_carry_distance, 1, " yds")}</td>
+                <td>${number(summary.avg_smash_factor, 2)}</td>
+                <td>${number(summary.avg_total_deviation_distance ?? summary.avg_carry_deviation_distance, 1, " yds")}</td>
+                <td>${number(summary.consistency_score, 1)}</td>
+              `;
+              sessionTableBody.appendChild(row);
+            });
           };
           
           // Create filter buttons
@@ -1449,86 +1540,12 @@ def render_clubs_page() -> str:
                 btn.style.background = isActive ? "#408114" : "#fff";
                 btn.style.color = isActive ? "#fff" : "#1B7114";
               });
-              createPathCloudChart(filter);
+              renderAllCharts(filter);
             };
             pathCloudFilterContainer.appendChild(button);
           });
 
-          if (window.Chart) {
-            createPathCloudChart(currentSessionFilter);
-            clubCarryChart = new window.Chart(document.getElementById("clubCarryChartLab"), {
-              type: "line",
-              data: { labels: carryChartLabels, datasets: carryDatasets },
-              options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false } },
-            });
-            clubSmashChart = new window.Chart(document.getElementById("clubSmashChartLab"), {
-              type: "bar",
-              data: {
-                labels: sessionLabels,
-                datasets: [
-                  { type: "bar", label: "Avg smash factor", data: smashValues, backgroundColor: "rgba(64,129,20,0.65)", borderColor: "#408114", borderWidth: 1, order: 2 },
-                  { type: "line", label: "Personal ceiling", data: sessionLabels.map(() => club.potential_smash_factor), borderColor: "#1B7114", backgroundColor: "transparent", borderWidth: 2, pointRadius: 0, tension: 0, order: 1 },
-                ],
-              },
-              options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "top" } }, scales: { y: { beginAtZero: false, min: 0.9 } } },
-            });
-
-            const dispersionGroups = {};
-            (data.charts.dispersion || []).forEach((point) => {
-              if (point.club !== clubLabel) return;
-              const idx = point.session_index ?? 0;
-              if (!dispersionGroups[idx]) dispersionGroups[idx] = [];
-              dispersionGroups[idx].push(point);
-            });
-            const totalSessions = (data.sessions || []).length;
-            clubDispersionChart = new window.Chart(document.getElementById("clubDispersionChartLab"), {
-              type: "scatter",
-              data: {
-                datasets: Object.entries(dispersionGroups).map(([idxStr, points]) => {
-                  const idx = Number(idxStr);
-                  const age = totalSessions - 1 - idx;
-                  const opacity = age <= 0 ? "ff" : age === 1 ? "99" : age === 2 ? "55" : "30";
-                  const label = data.sessions[idx]?.session_timestamp
-                    ? new Date(data.sessions[idx].session_timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                    : `Session ${idx + 1}`;
-                  return {
-                    label,
-                    data: points.map((point) => ({ x: point.x, y: point.y })),
-                    pointRadius: points.map((point) => point.outlier ? 6 : 4),
-                    pointStyle: points.map((point) => point.outlier ? "triangle" : "circle"),
-                    backgroundColor: points.map((point) => (point.outlier ? "#1E340A" : "#408114") + opacity),
-                  };
-                }),
-              },
-              options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { position: "top" } },
-                scales: {
-                  x: { type: "linear", title: { display: true, text: "Offline / deviation (yds)" } },
-                  y: { type: "linear", title: { display: true, text: "Carry distance (yds)" } },
-                },
-              },
-            });
-          }
-
-          const sessionTableBody = document.getElementById("club-session-table-body-lab");
-          sessionTableBody.innerHTML = "";
-          sessionRows.forEach(({ session, summary }) => {
-            const date = session.session_timestamp
-              ? new Date(session.session_timestamp).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
-              : session.source_file;
-            const row = document.createElement("tr");
-            row.innerHTML = `
-              <td>${date}</td>
-              <td>${summary.shot_count ?? "—"}</td>
-              <td>${number(summary.avg_carry_distance, 1, " yds")}</td>
-              <td>${number(summary.avg_smash_factor, 2)}</td>
-              <td>${number(summary.avg_total_deviation_distance ?? summary.avg_carry_deviation_distance, 1, " yds")}</td>
-              <td>${number(summary.consistency_score, 1)}</td>
-            `;
-            sessionTableBody.appendChild(row);
-          });
+          renderAllCharts(currentSessionFilter);
 
           document.querySelectorAll("#club-nav-pills-lab button").forEach((button) => {
             button.style.background = button.dataset.club === clubLabel ? "rgba(64,129,20,0.12)" : "#fff";
