@@ -391,7 +391,7 @@ def render_html() -> str:
       .club-nav-pill { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); border: 1.5px solid var(--accent); border-radius: 999px; padding: 6px 16px; font-size: 0.88rem; font-weight: 600; color: var(--accent2); cursor: pointer; font-family: inherit; transition: background 0.15s, color 0.15s; }
       .club-nav-pill:hover { background: var(--accent); color: #fff; }
       .path-lab-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-      .path-panel { display: flex; flex-direction: column; gap: 12px; }
+      .path-panel { display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 20px; box-shadow: 0 2px 16px rgba(30, 52, 10, 0.07); }
       .path-rail { position: relative; height: 88px; border-radius: 16px; border: 1px solid var(--border); background: linear-gradient(90deg, rgba(30,52,10,0.05) 0%, rgba(255,255,255,0.92) 50%, rgba(64,129,20,0.06) 100%); overflow: hidden; }
       .path-rail::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: rgba(30,52,10,0.14); }
       .path-marker { position: absolute; top: 18px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 92px; }
@@ -961,8 +961,8 @@ def render_clubs_page() -> str:
             <div class=\"path-metrics\" id=\"club-path-metrics-lab\"></div>
             <p class=\"small\" style=\"margin:0;\">Positive values move right; negative values move left. The cloud shows the shot-by-shot relationship between club path and face-to-path.</p>
           </div>
-          <div>
-            <div class=\"small\" style=\"text-transform:uppercase;letter-spacing:0.08em;font-weight:700;margin-bottom:8px;\">Path Cloud</div>
+          <div class=\"panel\" style=\"display:flex;flex-direction:column;gap:12px;\">
+            <div class=\"small\" style=\"text-transform:uppercase;letter-spacing:0.08em;font-weight:700;\">Path Cloud</div>
             <div class=\"chart-canvas small\"><canvas id=\"clubPathCloudLab\"></canvas></div>
           </div>
         </div>
