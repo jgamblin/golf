@@ -290,6 +290,64 @@ def build_recommendations(
 ) -> list[dict[str, Any]]:
     recommendations: list[dict[str, Any]] = []
 
+    # ─── Composition awareness: detect club mix changes ──────────────────────
+    if len(session_summaries) >= 2:
+        latest = session_summaries[-1]
+        prior_sessions = session_summaries[:-1]
+        latest_mix = latest.get("club_mix", "")
+
+        # Extract club types from mix string using word boundaries
+        def extract_club_types(mix_str: str) -> set[str]:
+            types = set()
+            mix_lower = mix_str.lower()
+            # Check for club types in order of specificity (longer patterns first)
+            if "pitching wedge" in mix_lower or "pw" in mix_lower:
+                types.add("pw")
+            if "gap wedge" in mix_lower or "gw" in mix_lower:
+                types.add("gw")
+            if "sand wedge" in mix_lower or "sw" in mix_lower:
+                types.add("sw")
+            if "lob wedge" in mix_lower or "lw" in mix_lower:
+                types.add("lw")
+            if "wedge" in mix_lower and not any(x in types for x in ["pw", "gw", "sw", "lw"]):
+                types.add("wedge")
+            if "driver" in mix_lower:
+                types.add("driver")
+            if "wood" in mix_lower:
+                types.add("woods")
+            if "hybrid" in mix_lower or "rescue" in mix_lower:
+                types.add("hybrid")
+            if "iron" in mix_lower:
+                types.add("irons")
+            if "putter" in mix_lower:
+                types.add("putter")
+            return types
+
+        latest_types = extract_club_types(latest_mix)
+        if prior_sessions:
+            prior_mix_combined = " ".join([s.get("club_mix", "") for s in prior_sessions])
+            prior_types = extract_club_types(prior_mix_combined)
+
+            # Detect missing club type (e.g., no driver when usually hit)
+            missing_types = prior_types - latest_types
+            if missing_types and latest_types:  # Only flag if we actually hit other clubs
+                missing_label = ", ".join(sorted(missing_types))
+                if "pw" in missing_label or "gw" in missing_label or "sw" in missing_label or "lw" in missing_label:
+                    missing_label = missing_label.replace("pw", "Pitching Wedge").replace("gw", "Gap Wedge").replace("sw", "Sand Wedge").replace("lw", "Lob Wedge")
+                recommendations.append(
+                    {
+                        "title": f"Note: Different composition today",
+                        "focus_area": "practice composition",
+                        "severity": 70,
+                        "severity_label": "High",
+                        "summary": (
+                            f"Today you focused on {latest_mix.lower()}. This is different from your typical session, "
+                            f"which explains metric fluctuations in carry, smash, and consistency."
+                        ),
+                        "evidence": f"Typical session includes: {missing_label}",
+                    }
+                )
+
     for club in club_summaries:
         club_label = club["club_label"]
         bias = club.get("avg_total_deviation_distance")
@@ -464,7 +522,7 @@ def build_recommendations(
         )
 
     recommendations.sort(key=lambda item: item["severity"], reverse=True)
-    return recommendations[:8]
+    return recommendations[:10]
 
 
 def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[dict[str, Any]], sessions: list[dict[str, Any]]) -> dict[str, Any]:
