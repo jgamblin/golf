@@ -256,7 +256,7 @@ def render_html() -> str:
       .sessions-list { display: flex; flex-direction: column; gap: 0; }
       .session-row {
         display: grid;
-        grid-template-columns: 1fr auto auto auto auto auto auto;
+        grid-template-columns: 1fr 1fr auto auto auto auto auto auto;
         align-items: center;
         gap: 0 16px;
         padding: 12px 4px;
@@ -265,6 +265,7 @@ def render_html() -> str:
       .session-row:last-child { border-bottom: none; }
       .session-row:hover { background: rgba(64,129,20,0.04); border-radius: 8px; }
       .session-row-date { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+      .session-row-mix { font-size: 0.82rem; color: var(--muted); font-weight: 600; }
       .session-row-rating { display: flex; align-items: baseline; gap: 5px; }
       .session-row-rating-val { font-size: 1.3rem; font-weight: 800; line-height: 1; }
       .session-row-stat { text-align: right; }
@@ -730,11 +731,16 @@ def render_html() -> str:
             const row = document.createElement("div");
             row.className = "session-row";
 
-            const datEl = document.createElement("div");
-            datEl.className = "session-row-date";
-            datEl.textContent = dateStr;
+            const dateEl = document.createElement("div");
+            dateEl.className = "session-row-date";
+            dateEl.textContent = dateStr;
 
-            row.appendChild(datEl);
+            const mixEl = document.createElement("div");
+            mixEl.className = "session-row-mix";
+            mixEl.textContent = session.club_mix || "—";
+
+            row.appendChild(dateEl);
+            row.appendChild(mixEl);
             row.appendChild(statCell(session.shot_count, "Shots"));
             row.appendChild(statCell(session.club_count, "Clubs"));
             row.appendChild(statCell(number(session.avg_carry_distance, 1), "Carry"));
@@ -1483,7 +1489,7 @@ def render_sessions_page() -> str:
         <h2>Session Replay</h2>
         <p class=\"small\">Review each session in chronological order with carry, smash, offline, and flagged-shot rate.</p>
         <div style=\"overflow-x:auto;\"><table>
-          <thead><tr><th>Date</th><th>Shots</th><th>Carry</th><th>Smash</th><th>Offline</th><th>Flagged</th></tr></thead>
+          <thead><tr><th>Date</th><th>Club Mix</th><th>Shots</th><th>Carry</th><th>Smash</th><th>Offline</th><th>Flagged</th></tr></thead>
           <tbody id=\"session-body\"></tbody>
         </table></div>
       </section>
@@ -1533,6 +1539,7 @@ def render_sessions_page() -> str:
           const row = document.createElement("tr");
           row.innerHTML = `
             <td>${date}</td>
+            <td>${s.club_mix || "—"}</td>
             <td>${s.shot_count ?? "—"}</td>
             <td>${fmt(s.avg_carry_distance, 1, " yds")}</td>
             <td>${fmt(s.avg_smash_factor, 2)}</td>

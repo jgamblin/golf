@@ -194,6 +194,53 @@ def summarize_club(club_label: str, shots: list[dict[str, Any]], weights: dict[s
     return summary
 
 
+def _detect_club_mix(clubs: list[str]) -> dict[str, list[str]]:
+    """Classify clubs by type and return groupings."""
+    types: dict[str, list[str]] = {
+        "drivers": [],
+        "woods": [],
+        "hybrids": [],
+        "irons": [],
+        "wedges": [],
+        "putter": [],
+    }
+    for club in clubs:
+        label = (club or "").strip().lower()
+        if "driver" in label:
+            types["drivers"].append(club)
+        elif "wood" in label:
+            types["woods"].append(club)
+        elif "hybrid" in label or "rescue" in label:
+            types["hybrids"].append(club)
+        elif "iron" in label:
+            types["irons"].append(club)
+        elif "wedge" in label or "pitching" in label or re.search(r"\b(pw|gw|sw|lw|aw)\b", label):
+            types["wedges"].append(club)
+        elif "putter" in label:
+            types["putter"].append(club)
+    return types
+
+
+def _format_club_mix_summary(types: dict[str, list[str]]) -> str:
+    """Format club mix as a readable string like 'Irons (5, 6, 7)'."""
+    parts = []
+    if types["drivers"]:
+        parts.append(f"Driver")
+    if types["woods"]:
+        parts.append(f"Woods ({len(types['woods'])} clubs)")
+    if types["hybrids"]:
+        parts.append(f"Hybrids ({len(types['hybrids'])} clubs)")
+    if types["irons"]:
+        irons_str = ", ".join([re.search(r"\d+", c).group(0) if re.search(r"\d+", c) else c for c in sorted(types["irons"], key=lambda x: _club_bag_order_key(x))])
+        parts.append(f"Irons ({irons_str})")
+    if types["wedges"]:
+        wedges_str = ", ".join([re.search(r"\b(pw|gw|sw|lw|aw)\b", c.lower()).group(0).upper() if re.search(r"\b(pw|gw|sw|lw|aw)\b", c.lower()) else c for c in sorted(types["wedges"], key=lambda x: _club_bag_order_key(x))])
+        parts.append(f"Wedges ({wedges_str})")
+    if types["putter"]:
+        parts.append("Putter")
+    return " · ".join(parts) if parts else "Mixed"
+
+
 def summarize_session(session: dict[str, Any], weights: dict[str, float] | None = None) -> dict[str, Any]:
     shots = session["shots"]
     clubs: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -207,6 +254,8 @@ def summarize_session(session: dict[str, Any], weights: dict[str, float] | None 
     avg_offline = average(
         [first_value(shot.get("total_deviation_distance"), shot.get("carry_deviation_distance")) for shot in shots]
     )
+    club_mix_types = _detect_club_mix(list(clubs.keys()))
+    club_mix_summary = _format_club_mix_summary(club_mix_types)
     return {
         "session_id": session["session_id"],
         "source_file": session["source_file"],
@@ -214,6 +263,7 @@ def summarize_session(session: dict[str, Any], weights: dict[str, float] | None 
         "session_timestamp": session.get("session_timestamp"),
         "shot_count": len(shots),
         "club_count": len(club_summaries),
+        "club_mix": club_mix_summary,
         "avg_carry_distance": average([shot.get("carry_distance") for shot in shots]),
         "avg_total_distance": average([shot.get("total_distance") for shot in shots]),
         "avg_smash_factor": average([shot.get("smash_factor") for shot in shots]),
