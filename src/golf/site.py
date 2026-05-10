@@ -865,6 +865,20 @@ def _render_subpage(title: str, heading: str, intro: str, content_html: str) -> 
       th, td {{ padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: left; }}
       th {{ color: var(--muted); font-weight: 700; }}
       .small {{ font-size: 0.84rem; color: var(--muted); }}
+      .path-lab-grid {{ display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }}
+      .path-panel {{ display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 20px; box-shadow: 0 2px 16px rgba(30, 52, 10, 0.07); }}
+      .path-rail {{ position: relative; height: 88px; border-radius: 16px; border: 1px solid var(--border); background: linear-gradient(90deg, rgba(30,52,10,0.05) 0%, rgba(255,255,255,0.92) 50%, rgba(64,129,20,0.06) 100%); overflow: hidden; }}
+      .path-rail::before {{ content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; background: rgba(30,52,10,0.14); }}
+      .path-marker {{ position: absolute; top: 18px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 92px; }}
+      .path-marker-dot {{ width: 16px; height: 16px; border-radius: 999px; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(30,52,10,0.14); }}
+      .path-marker-label {{ background: rgba(255,255,255,0.92); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; font-size: 0.76rem; font-weight: 700; color: var(--text); }}
+      .path-metrics {{ display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 12px; }}
+      .path-metric {{ background: rgba(242,242,240,0.9); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; }}
+      .path-metric .value {{ font-size: 1.4rem; font-weight: 800; color: var(--text); line-height: 1; order: 1; }}
+      .path-metric .label {{ font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; margin-top: 4px; order: 2; }}
+      .path-metric .gauge {{ margin-top: 8px; height: 6px; background: rgba(30,52,10,0.08); border-radius: 999px; overflow: hidden; order: 3; }}
+      .path-metric .gauge-fill {{ height: 100%; border-radius: 999px; transition: all 0.2s ease; }}
+      .path-metric .direction {{ font-size: 0.7rem; color: var(--muted); margin-top: 6px; font-weight: 600; order: 4; }}
       @media (max-width: 700px) {{
         main {{ padding: 26px 12px 44px; }}
       }}
