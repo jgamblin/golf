@@ -2334,7 +2334,7 @@ def render_session_reviews_page() -> str:
               const gLabel = g.charAt(0).toUpperCase() + g.slice(1);
               const carry = club.avg_carry_distance != null ? club.avg_carry_distance + " yds" : "—";
               const smash = club.avg_smash_factor != null ? club.avg_smash_factor.toFixed(2) : "—";
-              const offline = club.avg_offline != null ? Math.abs(club.avg_offline).toFixed(1) + " yds " + (club.avg_offline > 0 ? "R" : "L") : "—";
+              const offline = club.avg_offline != null ? Math.abs(club.avg_offline).toFixed(1) + " yds" + (club.avg_offline > 0 ? " R" : club.avg_offline < 0 ? " L" : "") : "—";
               const consistency = club.consistency_score != null ? club.consistency_score.toFixed(0) + "/100" : "—";
               html += `
               <div class="club-card">
