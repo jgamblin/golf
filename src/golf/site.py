@@ -451,6 +451,7 @@ def render_html() -> str:
       <nav class="site-links" aria-label="Site sections">
         <a class="site-link" href="./clubs.html">Club Lab</a>
         <a class="site-link" href="./sessions.html">Session Replay</a>
+        <a class="site-link" href="./session-reviews.html">Session Reviews</a>
         <a class="site-link" href="./gapping.html">Gapping</a>
         <a class="site-link" href="./coaching.html">Coaching</a>
         <a class="site-link" href="./data-quality.html">Data Quality</a>
@@ -890,6 +891,7 @@ def _render_subpage(title: str, heading: str, intro: str, content_html: str) -> 
         <a href=\"./index.html\">Overview</a>
         <a href=\"./clubs.html\">Club Lab</a>
         <a href=\"./sessions.html\">Session Replay</a>
+        <a href=\"./session-reviews.html\">Session Reviews</a>
         <a href=\"./gapping.html\">Gapping</a>
         <a href=\"./coaching.html\">Coaching</a>
         <a href=\"./data-quality.html\">Data Quality</a>
@@ -2158,6 +2160,235 @@ def render_coaching_page() -> str:
     )
 
 
+def render_session_reviews_page() -> str:
+    body = """
+      <style>
+        /* ── Session selector ──────────────────────────────── */
+        .session-selector {
+          display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px;
+        }
+        .session-btn {
+          padding: 7px 14px; border-radius: 999px; border: 1px solid var(--border);
+          background: var(--panel); color: var(--accent); font-size: 0.88rem;
+          font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s;
+        }
+        .session-btn.active, .session-btn:hover {
+          background: var(--accent); color: #fff; border-color: var(--accent);
+        }
+        /* ── Overview scorecard ────────────────────────────── */
+        .review-scorecard {
+          display: grid; gap: 12px;
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+          margin-bottom: 20px;
+        }
+        .scorecard-tile {
+          background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+          padding: 16px 18px; display: flex; flex-direction: column; gap: 4px;
+          box-shadow: 0 2px 10px rgba(30,52,10,0.06);
+        }
+        .scorecard-tile .tile-value { font-size: 1.7rem; font-weight: 800; line-height: 1; }
+        .scorecard-tile .tile-label {
+          font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+          letter-spacing: 0.06em; color: var(--muted); margin-top: 2px;
+        }
+        /* ── Good / Bad / Ugly panels ──────────────────────── */
+        .gbu-grid {
+          display: grid; gap: 14px;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          margin-bottom: 20px;
+        }
+        .gbu-panel { border-radius: 14px; padding: 16px 18px; }
+        .gbu-good  { border-left: 5px solid #1B7114; background: rgba(27,113,20,0.07); }
+        .gbu-bad   { border-left: 5px solid #d97706; background: rgba(217,119,6,0.07); }
+        .gbu-ugly  { border-left: 5px solid #1E340A; background: rgba(30,52,10,0.09); }
+        .gbu-panel h3 { margin: 0 0 10px; font-size: 1rem; }
+        .gbu-panel ul { margin: 0; padding-left: 18px; }
+        .gbu-panel li { color: var(--muted); font-size: 0.9rem; margin-bottom: 6px; line-height: 1.45; }
+        /* ── Trend note ────────────────────────────────────── */
+        .trend-note {
+          background: rgba(64,129,20,0.07); border: 1px solid var(--border);
+          border-radius: 10px; padding: 10px 14px; font-size: 0.9rem;
+          color: var(--accent); font-weight: 600; margin-bottom: 16px;
+        }
+        /* ── Next steps ────────────────────────────────────── */
+        .next-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+        .next-step {
+          border-left: 4px solid var(--accent); padding: 10px 14px; border-radius: 10px;
+          background: rgba(64,129,20,0.06); font-size: 0.9rem; color: var(--text);
+        }
+        /* ── Club review cards ─────────────────────────────── */
+        .club-review-grid {
+          display: grid; gap: 16px;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        }
+        .club-card {
+          background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+          padding: 18px; box-shadow: 0 2px 14px rgba(30,52,10,0.06);
+        }
+        .club-card-header {
+          display: flex; justify-content: space-between; align-items: center;
+          margin-bottom: 12px;
+        }
+        .club-card-header h3 { margin: 0; font-size: 1rem; }
+        .grade-badge {
+          display: inline-block; padding: 3px 10px; border-radius: 999px;
+          font-size: 0.72rem; font-weight: 700; color: #fff; text-transform: uppercase;
+        }
+        .grade-good  { background: #1B7114; }
+        .grade-bad   { background: #d97706; }
+        .grade-ugly  { background: #1E340A; }
+        .club-stats {
+          display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;
+        }
+        .club-stat { display: flex; flex-direction: column; gap: 2px; }
+        .club-stat .cs-value { font-size: 1.1rem; font-weight: 800; color: var(--text); }
+        .club-stat .cs-label {
+          font-size: 0.63rem; font-weight: 700; text-transform: uppercase;
+          letter-spacing: 0.05em; color: var(--muted);
+        }
+        .club-notes { padding-left: 16px; margin: 0 0 12px; }
+        .club-notes li { font-size: 0.84rem; color: var(--muted); margin-bottom: 4px; line-height: 1.4; }
+        .club-next-focus {
+          border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px;
+          font-size: 0.84rem; color: var(--text);
+        }
+        .club-next-focus strong { color: var(--accent); }
+      </style>
+
+      <!-- ── Session selector ─────────────────────────────── -->
+      <div class="panel" id="selector-panel">
+        <h2>Select a Session</h2>
+        <div class="session-selector" id="session-selector"></div>
+      </div>
+
+      <!-- ── Review content (populated by JS) ─────────────── -->
+      <div id="review-content"></div>
+
+      <script>
+        const reviews = (data.session_reviews || []);
+        const selector = document.getElementById("session-selector");
+        const reviewContent = document.getElementById("review-content");
+
+        function labelFor(r) {
+          if (r.session_timestamp) {
+            const d = new Date(r.session_timestamp);
+            return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+          }
+          return r.source_file || r.session_id || "Session";
+        }
+
+        function gradeColor(g) {
+          return g === "good" ? "#1B7114" : g === "bad" ? "#d97706" : "#1E340A";
+        }
+
+        function renderReview(r) {
+          const ov = r.overview || {};
+          const good = ov.good || [];
+          const bad  = ov.bad  || [];
+          const ugly = ov.ugly || [];
+          const clubs = r.club_reviews || [];
+          const nextSteps = r.next_steps || [];
+
+          let html = "";
+
+          // Score / summary row
+          html += `<div class="review-scorecard">`;
+          if (r.session_score !== null && r.session_score !== undefined) {
+            html += `<div class="scorecard-tile"><span class="tile-value">${r.session_score}</span><span class="tile-label">Session score</span></div>`;
+          }
+          html += `<div class="scorecard-tile"><span class="tile-value">${r.shot_count ?? "—"}</span><span class="tile-label">Shots hit</span></div>`;
+          html += `<div class="scorecard-tile"><span class="tile-value">${clubs.length}</span><span class="tile-label">Clubs hit</span></div>`;
+          const goodCount = clubs.filter(c => c.grade === "good").length;
+          const badCount  = clubs.filter(c => c.grade === "bad" || c.grade === "ugly").length;
+          html += `<div class="scorecard-tile"><span class="tile-value" style="color:#1B7114">${goodCount}</span><span class="tile-label">Clubs on form</span></div>`;
+          html += `<div class="scorecard-tile"><span class="tile-value" style="color:#d97706">${badCount}</span><span class="tile-label">Clubs need work</span></div>`;
+          html += `</div>`;
+
+          if (r.trend_note) {
+            html += `<div class="trend-note">${r.trend_note}</div>`;
+          }
+
+          // Good / Bad / Ugly
+          html += `<div class="gbu-grid">`;
+          html += `<div class="gbu-panel gbu-good"><h3>✅ What went well</h3><ul>${good.length ? good.map(i => `<li>${i}</li>`).join("") : "<li>Keep building — more data will reveal your strengths.</li>"}</ul></div>`;
+          html += `<div class="gbu-panel gbu-bad"><h3>⚠️ Needs work</h3><ul>${bad.length ? bad.map(i => `<li>${i}</li>`).join("") : "<li>No major concerns this session.</li>"}</ul></div>`;
+          html += `<div class="gbu-panel gbu-ugly"><h3>🚨 Critical issues</h3><ul>${ugly.length ? ugly.map(i => `<li>${i}</li>`).join("") : "<li>Nothing critical — solid session!</li>"}</ul></div>`;
+          html += `</div>`;
+
+          // Next session focus
+          html += `<div class="panel" style="margin-bottom:16px;">`;
+          html += `<h2>Next Session Focus</h2>`;
+          html += `<ul class="next-steps">${nextSteps.map(s => `<li class="next-step">${s}</li>`).join("")}</ul>`;
+          html += `</div>`;
+
+          // Club-by-club breakdown
+          html += `<div class="panel">`;
+          html += `<h2>Club-by-Club Breakdown</h2>`;
+          if (!clubs.length) {
+            html += `<p>No club data available for this session.</p>`;
+          } else {
+            html += `<div class="club-review-grid">`;
+            clubs.forEach(club => {
+              const g = club.grade || "good";
+              const gc = `grade-${g}`;
+              const gLabel = g.charAt(0).toUpperCase() + g.slice(1);
+              const carry = club.avg_carry_distance != null ? club.avg_carry_distance + " yds" : "—";
+              const smash = club.avg_smash_factor != null ? club.avg_smash_factor.toFixed(2) : "—";
+              const offline = club.avg_offline != null ? Math.abs(club.avg_offline).toFixed(1) + " yds " + (club.avg_offline > 0 ? "R" : "L") : "—";
+              const consistency = club.consistency_score != null ? club.consistency_score.toFixed(0) + "/100" : "—";
+              html += `
+              <div class="club-card">
+                <div class="club-card-header">
+                  <h3>${club.club_label || "Club"}</h3>
+                  <span class="grade-badge ${gc}">${gLabel}</span>
+                </div>
+                <div class="club-stats">
+                  <div class="club-stat"><span class="cs-value">${carry}</span><span class="cs-label">Carry</span></div>
+                  <div class="club-stat"><span class="cs-value">${smash}</span><span class="cs-label">Smash</span></div>
+                  <div class="club-stat"><span class="cs-value">${offline}</span><span class="cs-label">Offline</span></div>
+                  <div class="club-stat"><span class="cs-value">${consistency}</span><span class="cs-label">Consistency</span></div>
+                  <div class="club-stat"><span class="cs-value">${club.shot_count ?? "—"}</span><span class="cs-label">Shots</span></div>
+                </div>
+                <ul class="club-notes">${(club.notes || []).map(n => `<li>${n}</li>`).join("")}</ul>
+                <div class="club-next-focus"><strong>Next focus:</strong> ${club.next_focus || "—"}</div>
+              </div>`;
+            });
+            html += `</div>`;
+          }
+          html += `</div>`;
+
+          return html;
+        }
+
+        if (!reviews.length) {
+          reviewContent.innerHTML = `<div class="panel"><p>No session reviews available yet. Upload your first session CSV to get started.</p></div>`;
+        } else {
+          // Build selector buttons
+          reviews.forEach((r, idx) => {
+            const btn = document.createElement("button");
+            btn.className = "session-btn" + (idx === 0 ? " active" : "");
+            btn.textContent = labelFor(r);
+            btn.addEventListener("click", () => {
+              document.querySelectorAll(".session-btn").forEach(b => b.classList.remove("active"));
+              btn.classList.add("active");
+              reviewContent.innerHTML = renderReview(r);
+            });
+            selector.appendChild(btn);
+          });
+
+          // Render the most recent session by default
+          reviewContent.innerHTML = renderReview(reviews[0]);
+        }
+      </script>
+    """
+    return _render_subpage(
+        "Session Reviews - Golf Range Analytics",
+        "Session Reviews",
+        "A coaching report for every session — what went well, what needs work, and what to focus on next.",
+        body,
+    )
+
+
 def write_site(data: dict[str, Any], output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "site-data.js").write_text(
@@ -2167,6 +2398,7 @@ def write_site(data: dict[str, Any], output_dir: Path) -> None:
     (output_dir / "index.html").write_text(render_html(), encoding="utf-8")
     (output_dir / "clubs.html").write_text(render_clubs_page(), encoding="utf-8")
     (output_dir / "sessions.html").write_text(render_sessions_page(), encoding="utf-8")
+    (output_dir / "session-reviews.html").write_text(render_session_reviews_page(), encoding="utf-8")
     (output_dir / "gapping.html").write_text(render_gapping_page(), encoding="utf-8")
     (output_dir / "data-quality.html").write_text(render_data_quality_page(), encoding="utf-8")
     (output_dir / "coaching.html").write_text(render_coaching_page(), encoding="utf-8")
