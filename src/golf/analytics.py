@@ -1421,6 +1421,279 @@ def attach_recommendation_confidence(
     return enriched
 
 
+def _club_review_grade(club: dict[str, Any]) -> str:
+    """Return 'good', 'bad', or 'ugly' for a single club based on key metrics."""
+    issues = 0
+
+    bias = club.get("avg_total_deviation_distance")
+    if bias is None:
+        bias = club.get("avg_carry_deviation_distance")
+    if isinstance(bias, (int, float)) and abs(bias) >= 15:
+        issues += 2
+    elif isinstance(bias, (int, float)) and abs(bias) >= 8:
+        issues += 1
+
+    face_std = club.get("face_to_path_stddev")
+    if isinstance(face_std, (int, float)) and face_std >= 8:
+        issues += 2
+    elif isinstance(face_std, (int, float)) and face_std >= 5:
+        issues += 1
+
+    outlier_rate = club.get("outlier_rate")
+    if isinstance(outlier_rate, (int, float)):
+        rate = outlier_rate / 100.0 if outlier_rate > 1 else outlier_rate
+        if rate >= 0.35:
+            issues += 2
+        elif rate >= 0.20:
+            issues += 1
+
+    consistency = club.get("consistency_score")
+    if isinstance(consistency, (int, float)):
+        if consistency < 35:
+            issues += 2
+        elif consistency < 55:
+            issues += 1
+
+    if issues >= 4:
+        return "ugly"
+    if issues >= 2:
+        return "bad"
+    return "good"
+
+
+def _club_review_notes(club: dict[str, Any]) -> list[str]:
+    """Return a list of human-readable coaching observations for a single club."""
+    notes: list[str] = []
+    club_label = club.get("club_label", "this club")
+
+    avg_carry = club.get("avg_carry_distance")
+    carry_std = club.get("carry_stddev")
+    if isinstance(avg_carry, (int, float)):
+        note = f"Average carry: {avg_carry:.0f} yds"
+        if isinstance(carry_std, (int, float)):
+            note += f" (±{carry_std:.0f} yds)"
+        notes.append(note)
+
+    bias = club.get("avg_total_deviation_distance")
+    if bias is None:
+        bias = club.get("avg_carry_deviation_distance")
+    if isinstance(bias, (int, float)):
+        direction = "right" if bias > 0 else "left"
+        if abs(bias) >= 8:
+            notes.append(
+                f"Offline bias: {abs(bias):.1f} yds {direction} — work on start-line alignment."
+            )
+        else:
+            notes.append(f"Offline bias: {abs(bias):.1f} yds {direction} — solid direction control.")
+
+    smash = club.get("avg_smash_factor")
+    potential = club.get("potential_smash_factor")
+    if isinstance(smash, (int, float)) and isinstance(potential, (int, float)):
+        gap = potential - smash
+        if gap >= 0.08:
+            notes.append(
+                f"Smash factor {smash:.2f} vs potential {potential:.2f} — centre-strike drills needed."
+            )
+        else:
+            notes.append(f"Smash factor {smash:.2f} — good contact quality.")
+
+    face_std = club.get("face_to_path_stddev")
+    if isinstance(face_std, (int, float)):
+        if face_std >= 6:
+            notes.append(f"Face-to-path variability: {face_std:.1f}° — inconsistent delivery; use impact tape.")
+        else:
+            notes.append(f"Face-to-path variability: {face_std:.1f}° — face control is consistent.")
+
+    outlier_rate = club.get("outlier_rate")
+    if isinstance(outlier_rate, (int, float)):
+        rate = outlier_rate / 100.0 if outlier_rate > 1 else outlier_rate
+        if rate >= 0.20:
+            notes.append(f"{rate * 100:.0f}% of shots were pattern outliers — focus on repeatable stock swings.")
+
+    consistency = club.get("consistency_score")
+    if isinstance(consistency, (int, float)):
+        if consistency >= 70:
+            notes.append(f"Consistency score: {consistency:.0f}/100 — excellent overall repeatability.")
+        elif consistency >= 50:
+            notes.append(f"Consistency score: {consistency:.0f}/100 — room to improve repeatability.")
+        else:
+            notes.append(f"Consistency score: {consistency:.0f}/100 — prioritise tighter, shorter swings.")
+
+    return notes
+
+
+def build_session_review(
+    session_summary: dict[str, Any],
+    all_session_summaries: list[dict[str, Any]],
+    session_scores: list[float | None],
+    session_index: int,
+) -> dict[str, Any]:
+    """Build a coaching review for a single session.
+
+    Returns a dict with:
+    * ``overview``        — high-level good/bad/ugly summary plus a numeric score
+    * ``club_reviews``    — per-club grade, notes, and next-session focus
+    * ``next_steps``      — 3-5 actionable priorities for the golfer's next visit
+    """
+    club_summaries = session_summary.get("club_summaries", [])
+    shot_count = session_summary.get("shot_count", 0) or 0
+    flagged_count = session_summary.get("flagged_shot_count", 0) or 0
+    outlier_rate = session_summary.get("outlier_rate")
+    avg_smash = session_summary.get("avg_smash_factor")
+    avg_carry = session_summary.get("avg_carry_distance")
+    avg_offline = session_summary.get("avg_offline_distance")
+    session_score = session_scores[session_index] if session_index < len(session_scores) else None
+
+    # ── Trend delta (vs previous session) ────────────────────────────────────
+    trend_note: str | None = None
+    if session_index > 0:
+        prev = all_session_summaries[session_index - 1]
+        prev_carry = prev.get("avg_carry_distance")
+        if isinstance(avg_carry, (int, float)) and isinstance(prev_carry, (int, float)):
+            delta = avg_carry - prev_carry
+            if delta >= 3:
+                trend_note = f"Carry improved by {delta:.1f} yds vs previous session. ↑"
+            elif delta <= -3:
+                trend_note = f"Carry dropped by {abs(delta):.1f} yds vs previous session. ↓"
+            else:
+                trend_note = "Carry distance held steady vs previous session. →"
+
+    # ── Good / Bad / Ugly categorisation ─────────────────────────────────────
+    good_items: list[str] = []
+    bad_items: list[str] = []
+    ugly_items: list[str] = []
+
+    # Smash factor assessment
+    if isinstance(avg_smash, (int, float)):
+        if avg_smash >= 1.35:
+            good_items.append(f"Strong contact quality — average smash factor {avg_smash:.2f}.")
+        elif avg_smash >= 1.20:
+            bad_items.append(f"Contact quality has room to improve — smash factor {avg_smash:.2f}.")
+        else:
+            ugly_items.append(f"Poor contact: smash factor only {avg_smash:.2f}. Prioritise centred-strike drills.")
+
+    # Direction control
+    if isinstance(avg_offline, (int, float)):
+        abs_offline = abs(avg_offline)
+        if abs_offline <= 5:
+            good_items.append(f"Excellent direction control — average offline only {abs_offline:.1f} yds.")
+        elif abs_offline <= 12:
+            bad_items.append(f"Directional drift of {abs_offline:.1f} yds offline — alignment work recommended.")
+        else:
+            ugly_items.append(f"Severe offline bias: {abs_offline:.1f} yds average. Target gates and alignment drills needed urgently.")
+
+    # Shot consistency / outlier rate
+    if isinstance(outlier_rate, (int, float)):
+        rate = outlier_rate / 100.0 if outlier_rate > 1 else outlier_rate
+        if rate < 0.10:
+            good_items.append(f"Shot pattern is tight — only {rate * 100:.0f}% outlier shots.")
+        elif rate < 0.25:
+            bad_items.append(f"{rate * 100:.0f}% of shots were outliers — work on repeatable swing mechanics.")
+        else:
+            ugly_items.append(f"High outlier rate: {rate * 100:.0f}%. Focus on short, controlled swings to rebuild consistency.")
+
+    # Data quality (flagged shots)
+    if shot_count > 0 and flagged_count / shot_count >= 0.10:
+        flagged_pct = round(flagged_count / shot_count * 100)
+        bad_items.append(
+            f"{flagged_pct}% of shots were zero-value — check sensor positioning and lighting."
+        )
+
+    # Per-club grades
+    good_clubs = [c["club_label"] for c in club_summaries if _club_review_grade(c) == "good"]
+    bad_clubs  = [c["club_label"] for c in club_summaries if _club_review_grade(c) == "bad"]
+    ugly_clubs = [c["club_label"] for c in club_summaries if _club_review_grade(c) == "ugly"]
+
+    if good_clubs:
+        good_items.append(f"Best clubs this session: {', '.join(good_clubs)}.")
+    if bad_clubs:
+        bad_items.append(f"Needs attention: {', '.join(bad_clubs)}.")
+    if ugly_clubs:
+        ugly_items.append(f"Struggled with: {', '.join(ugly_clubs)} — prioritise these next session.")
+
+    # ── Per-club detailed reviews ─────────────────────────────────────────────
+    club_reviews: list[dict[str, Any]] = []
+    for club in club_summaries:
+        grade = _club_review_grade(club)
+        notes = _club_review_notes(club)
+        bias = club.get("avg_total_deviation_distance") or club.get("avg_carry_deviation_distance")
+        smash = club.get("avg_smash_factor")
+        potential = club.get("potential_smash_factor")
+        next_focus: str
+        if grade == "ugly":
+            next_focus = "Rebuild this club from scratch — short targets, slow swings, contact drills."
+        elif grade == "bad":
+            smash_gap = (potential - smash) if isinstance(smash, (int, float)) and isinstance(potential, (int, float)) else None
+            face_std = club.get("face_to_path_stddev")
+            if isinstance(smash_gap, float) and smash_gap >= 0.08:
+                next_focus = "Prioritise centred-strike work — impact tape and tee drills."
+            elif isinstance(face_std, (int, float)) and face_std >= 6:
+                next_focus = "Stabilise face-to-path — half-speed rehearsals and narrow-gate targets."
+            elif isinstance(bias, (int, float)) and abs(bias) >= 8:
+                next_focus = "Use alignment sticks and start-line gate drills to tighten direction."
+            else:
+                next_focus = "Mix of issues — focus on one metric per bucket: start with carry distance."
+        else:
+            next_focus = "Maintain current form — challenge yourself with tighter targets or reduced swing speed."
+        club_reviews.append(
+            {
+                "club_label": club.get("club_label"),
+                "grade": grade,
+                "shot_count": club.get("shot_count"),
+                "avg_carry_distance": round_or_none(club.get("avg_carry_distance")),
+                "avg_smash_factor": round_or_none(club.get("avg_smash_factor"), 2),
+                "avg_offline": round_or_none(bias),
+                "consistency_score": round_or_none(club.get("consistency_score")),
+                "notes": notes,
+                "next_focus": next_focus,
+            }
+        )
+
+    # Sort so "ugly" first, then "bad", then "good"
+    grade_order = {"ugly": 0, "bad": 1, "good": 2}
+    club_reviews.sort(key=lambda r: grade_order.get(r["grade"], 3))
+
+    # ── Next steps ────────────────────────────────────────────────────────────
+    next_steps: list[str] = []
+    for club_review in club_reviews:
+        if club_review["grade"] in ("ugly", "bad"):
+            next_steps.append(f"{club_review['club_label']}: {club_review['next_focus']}")
+        if len(next_steps) >= 3:
+            break
+    if not next_steps:
+        next_steps.append("Great session! Push your limits — tighten target windows or increase distance goals.")
+
+    return {
+        "session_id": session_summary.get("session_id"),
+        "session_timestamp": session_summary.get("session_timestamp"),
+        "source_file": session_summary.get("source_file"),
+        "shot_count": shot_count,
+        "club_mix": session_summary.get("club_mix"),
+        "session_score": round_or_none(session_score),
+        "trend_note": trend_note,
+        "overview": {
+            "good": good_items,
+            "bad": bad_items,
+            "ugly": ugly_items,
+        },
+        "club_reviews": club_reviews,
+        "next_steps": next_steps,
+    }
+
+
+def build_session_reviews(
+    session_summaries: list[dict[str, Any]],
+    session_scores: list[float | None],
+) -> list[dict[str, Any]]:
+    """Return a coaching review for every session, most recent first."""
+    reviews = [
+        build_session_review(summary, session_summaries, session_scores, idx)
+        for idx, summary in enumerate(session_summaries)
+    ]
+    reviews.reverse()
+    return reviews
+
+
 def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str, Any] | None = None) -> dict[str, Any]:
     enriched_sessions = attach_ml_scores(sessions)
 
@@ -1459,6 +1732,9 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
     latest_session_deltas = build_latest_session_deltas(session_summaries)
     recommendations = attach_recommendation_confidence(recommendations, club_summaries, data_quality)
     next_session_worklist = build_next_session_worklist(session_summaries, recommendations, latest_session_deltas)
+
+    session_scores = score_sessions(session_summaries)
+    session_reviews = build_session_reviews(session_summaries, session_scores)
 
     total_shots = sum(session["shot_count"] for session in session_summaries)
     avg_consistency = average([club.get("consistency_score") for club in club_summaries])
@@ -1546,5 +1822,6 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
         "recommendations": recommendations,
         "latest_session_deltas": latest_session_deltas,
         "next_session_worklist": next_session_worklist,
+        "session_reviews": session_reviews,
         "charts": chart_payload(session_summaries, club_summaries, enriched_sessions),
     }

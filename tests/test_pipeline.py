@@ -11,7 +11,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from golf.cli import build_command
 from golf.ingest import parse_float, parse_timestamp
-from golf.analytics import build_forecasts, potential_gap_pct, build_recommendations
+from golf.analytics import build_forecasts, potential_gap_pct, build_recommendations, build_session_review, build_session_reviews, summarize_session
 
 
 SAMPLE_CSV = """Date,Player,Club Name,Brand/Model,Club Type,Club Speed,Attack Angle,Club Path,Club Face,Face to Path,Ball Speed,Smash Factor,Launch Angle,Launch Direction,Backspin,Sidespin,Spin Rate,Spin Rate Type,Spin Axis,Apex Height,Carry Distance,Carry Deviation Angle,Carry Deviation Distance,Total Distance,Total Deviation Angle,Total Deviation Distance,Target Total Distance,Target Carry Distance,Note,Tag,Air Density,Temperature,Air Pressure,Relative Humidity,Back Stroke Length,Target Backswing Time,Target Downswing Time,Forward Stroke Length,Backswing Time,Downswing Time,Target Tempo,Swing Tempo
@@ -53,6 +53,106 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(target_profile["auto_target_carry_distance_avg"], round(target_profile["auto_target_carry_distance_avg"]))
             pitching_target = payload["target_control"]["per_club"]["Pitching Wedge"]["auto_target_carry_distance_avg"]
             self.assertGreater(target_profile["auto_target_carry_distance_avg"], pitching_target)
+
+            # Session reviews page and data
+            self.assertTrue((output_dir / "session-reviews.html").exists())
+            self.assertIn("session_reviews", payload)
+            self.assertEqual(len(payload["session_reviews"]), 1)
+            review = payload["session_reviews"][0]
+            self.assertIn("overview", review)
+            self.assertIn("club_reviews", review)
+            self.assertIn("next_steps", review)
+            self.assertEqual(len(review["club_reviews"]), 2)
+
+
+class TestSessionReviews(unittest.TestCase):
+    """Unit tests for build_session_review and build_session_reviews."""
+
+    def _make_session(self, avg_carry: float, avg_smash: float, avg_offline: float) -> dict:
+        """Build a minimal session summary for testing."""
+        return {
+            "session_id": "test",
+            "source_file": "test.csv",
+            "session_timestamp": "2026-04-19T11:45:45",
+            "shot_count": 10,
+            "flagged_shot_count": 0,
+            "club_mix": "Irons (9)",
+            "avg_carry_distance": avg_carry,
+            "avg_total_distance": avg_carry + 10,
+            "avg_smash_factor": avg_smash,
+            "avg_ball_speed": avg_carry * 0.8,
+            "avg_offline_distance": avg_offline,
+            "outlier_rate": 0.05,
+            "club_summaries": [
+                {
+                    "club_label": "9 Iron",
+                    "shot_count": 10,
+                    "avg_carry_distance": avg_carry,
+                    "avg_total_distance": avg_carry + 10,
+                    "avg_smash_factor": avg_smash,
+                    "avg_ball_speed": avg_carry * 0.8,
+                    "avg_face_to_path": 2.0,
+                    "avg_total_deviation_distance": avg_offline,
+                    "avg_carry_deviation_distance": avg_offline,
+                    "carry_stddev": 4.0,
+                    "offline_stddev": 3.0,
+                    "face_to_path_stddev": 3.0,
+                    "consistency_score": 65.0,
+                    "outlier_rate": 0.05,
+                    "potential_smash_factor": avg_smash + 0.02,
+                }
+            ],
+        }
+
+    def test_review_structure(self) -> None:
+        session = self._make_session(150, 1.38, 3.0)
+        review = build_session_review(session, [session], [None], 0)
+        self.assertIn("overview", review)
+        self.assertIn("club_reviews", review)
+        self.assertIn("next_steps", review)
+        ov = review["overview"]
+        self.assertIn("good", ov)
+        self.assertIn("bad", ov)
+        self.assertIn("ugly", ov)
+        self.assertIsInstance(review["next_steps"], list)
+        self.assertTrue(len(review["next_steps"]) > 0)
+
+    def test_good_session_has_no_ugly_items(self) -> None:
+        session = self._make_session(150, 1.42, 2.0)
+        review = build_session_review(session, [session], [80.0], 0)
+        self.assertEqual(review["overview"]["ugly"], [])
+
+    def test_poor_offline_produces_bad_or_ugly(self) -> None:
+        session = self._make_session(150, 1.38, 20.0)
+        review = build_session_review(session, [session], [None], 0)
+        combined = review["overview"]["bad"] + review["overview"]["ugly"]
+        self.assertTrue(any("offline" in item.lower() or "direction" in item.lower() for item in combined))
+
+    def test_trend_note_for_multi_session(self) -> None:
+        s1 = self._make_session(140, 1.38, 3.0)
+        s2 = self._make_session(150, 1.38, 3.0)
+        review = build_session_review(s2, [s1, s2], [None, None], 1)
+        self.assertIsNotNone(review["trend_note"])
+        self.assertIn("↑", review["trend_note"])
+
+    def test_build_session_reviews_returns_reversed(self) -> None:
+        s1 = self._make_session(140, 1.38, 3.0)
+        s2 = self._make_session(150, 1.38, 3.0)
+        reviews = build_session_reviews([s1, s2], [None, None])
+        self.assertEqual(len(reviews), 2)
+        # Most recent session (s2, higher carry) should be first
+        self.assertEqual(reviews[0]["session_id"], s2["session_id"])
+
+    def test_club_review_grade_good(self) -> None:
+        session = self._make_session(150, 1.42, 2.0)
+        review = build_session_review(session, [session], [None], 0)
+        club = review["club_reviews"][0]
+        self.assertEqual(club["grade"], "good")
+
+    def test_next_steps_not_empty(self) -> None:
+        session = self._make_session(150, 1.38, 3.0)
+        review = build_session_review(session, [session], [None], 0)
+        self.assertGreater(len(review["next_steps"]), 0)
 
 
 class TestParseFloat(unittest.TestCase):
