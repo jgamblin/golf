@@ -541,6 +541,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
     club_labels = [club["club_label"] for club in club_summaries]
     dispersion = []
     path_cloud = []
+    flight_samples = []
     for session_idx, session in enumerate(sessions):
         for shot in session["shots"]:
             y = first_value(shot.get("carry_distance"), shot.get("total_distance"))
@@ -569,6 +570,24 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
                     }
                 )
 
+            carry_distance = shot.get("carry_distance")
+            apex_height = shot.get("apex_height")
+            total_distance = shot.get("total_distance")
+            if isinstance(carry_distance, (int, float)) and isinstance(apex_height, (int, float)):
+                total_value = None
+                if isinstance(total_distance, (int, float)):
+                    total_value = max(float(carry_distance), float(total_distance))
+                flight_samples.append(
+                    {
+                        "club": shot["club_label"],
+                        "carry": round(float(carry_distance), 1),
+                        "apex": round(float(apex_height), 1),
+                        "total": round(total_value, 1) if total_value is not None else None,
+                        "outlier": shot.get("is_outlier", False),
+                        "session_index": session_idx,
+                    }
+                )
+
     miss_trend = []
     for session in session_summaries:
         miss_trend.append(round_or_none(session.get("avg_offline_distance")))
@@ -589,6 +608,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
         },
         "dispersion": dispersion,
         "path_cloud": path_cloud,
+        "flight_samples": flight_samples,
     }
 
 

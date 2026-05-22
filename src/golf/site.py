@@ -994,6 +994,13 @@ def render_clubs_page() -> str:
             <div class=\"chart-canvas small\"><canvas id=\"clubPathCloudLab\"></canvas></div>
           </div>
         </div>
+        <div class=\"panel\" style=\"margin-bottom:16px;\">
+          <div style=\"display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;\">
+            <div class=\"small\" style=\"text-transform:uppercase;letter-spacing:0.08em;font-weight:700;\">Simulated Flight Paths</div>
+            <div class=\"small\" id=\"club-flight-callout-lab\">Representative trajectories from selected shots.</div>
+          </div>
+          <div class=\"chart-canvas\" style=\"height:300px;\"><canvas id=\"clubFlightPathLab\"></canvas></div>
+        </div>
         <div id=\"club-prediction-callout-lab\"></div>
         <div style=\"display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-top:16px;\">
           <div>
@@ -1033,6 +1040,7 @@ def render_clubs_page() -> str:
         let clubSmashChart = null;
         let clubDispersionChart = null;
         let clubPathCloudChart = null;
+        let clubFlightChart = null;
         if (window.Chart && spinLabels.length) {
           new window.Chart(document.getElementById("clubBarsLab"), {
             type: "bar",
@@ -1246,6 +1254,7 @@ def render_clubs_page() -> str:
           if (clubSmashChart) clubSmashChart.destroy();
           if (clubDispersionChart) clubDispersionChart.destroy();
           if (clubPathCloudChart) clubPathCloudChart.destroy();
+          if (clubFlightChart) clubFlightChart.destroy();
 
           document.getElementById("club-detail-name-lab").textContent = clubLabel;
           const velocityBadge = document.getElementById("club-velocity-badge-lab");
@@ -1338,7 +1347,8 @@ def render_clubs_page() -> str:
 
           // Setup session filter that applies to all club data
           const pathCloudFilterContainer = document.getElementById("path-cloud-filter-lab");
-          let currentSessionFilter = "all";
+          pathCloudFilterContainer.innerHTML = "";
+          let currentSessionFilter = pathCloudFilterContainer.dataset.activeFilter || "all";
           const totalSessions = data.sessions.length;
           
           const getFilteredSessionIndices = (filter) => {
@@ -1450,6 +1460,134 @@ def render_clubs_page() -> str:
               },
             });
 
+            const flightCallout = document.getElementById("club-flight-callout-lab");
+            let flightPoints = (data.charts.flight_samples || []).filter((point) => point.club === clubLabel);
+            flightPoints = flightPoints.filter((point) => filteredIndices.includes(point.session_index ?? 0));
+            const nonOutlierPoints = flightPoints.filter((point) => !point.outlier);
+            const representativePoints = nonOutlierPoints.length >= 3 ? nonOutlierPoints : flightPoints;
+
+            const carries = representativePoints
+              .map((point) => point.carry)
+              .filter((value) => typeof value === "number" && Number.isFinite(value));
+            const apexes = representativePoints
+              .map((point) => point.apex)
+              .filter((value) => typeof value === "number" && Number.isFinite(value));
+            const totals = representativePoints
+              .map((point) => point.total)
+              .filter((value) => typeof value === "number" && Number.isFinite(value));
+
+            const mean = (values) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+            const median = (values) => {
+              if (!values.length) return null;
+              const sorted = [...values].sort((a, b) => a - b);
+              const mid = Math.floor(sorted.length / 2);
+              return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+            };
+            const fallbackApex = (carry) => Math.max(6, Math.min(45, carry * 0.12));
+            const buildCurve = (carry, apex, steps = 24) => {
+              if (!(carry > 0) || !(apex > 0)) return [];
+              const a = (4 * apex) / (carry * carry);
+              const points = [];
+              for (let i = 0; i <= steps; i += 1) {
+                const x = (carry * i) / steps;
+                const y = Math.max(0, a * x * (carry - x));
+                points.push({ x, y: Number(y.toFixed(2)) });
+              }
+              return points;
+            };
+
+            if (clubFlightChart) clubFlightChart.destroy();
+            if (!carries.length) {
+              flightCallout.textContent = "Flight-path simulation is unavailable for this club and filter.";
+            } else {
+              const bestShot = [...representativePoints]
+                .filter((point) => typeof point.carry === "number" && Number.isFinite(point.carry))
+                .sort((left, right) => (right.carry || 0) - (left.carry || 0))[0];
+
+              const averageProfile = {
+                label: "Average",
+                carry: mean(carries),
+                apex: mean(apexes),
+                total: mean(totals),
+                color: "#408114",
+              };
+              const medianProfile = {
+                label: "Median",
+                carry: median(carries),
+                apex: median(apexes),
+                total: median(totals),
+                color: "#1B7114",
+              };
+              const topCarryProfile = {
+                label: "Top carry",
+                carry: bestShot?.carry ?? null,
+                apex: bestShot?.apex ?? null,
+                total: bestShot?.total ?? null,
+                color: "#1E340A",
+              };
+
+              const profiles = [averageProfile, medianProfile, topCarryProfile]
+                .filter((profile) => typeof profile.carry === "number" && Number.isFinite(profile.carry))
+                .map((profile) => {
+                  const resolvedApex = typeof profile.apex === "number" && Number.isFinite(profile.apex)
+                    ? profile.apex
+                    : fallbackApex(profile.carry);
+                  return {
+                    ...profile,
+                    apex: resolvedApex,
+                    total: typeof profile.total === "number" && Number.isFinite(profile.total)
+                      ? Math.max(profile.total, profile.carry)
+                      : null,
+                  };
+                });
+
+              const chartDatasets = [];
+              profiles.forEach((profile) => {
+                chartDatasets.push({
+                  label: `${profile.label} (${profile.carry.toFixed(0)}c / ${profile.apex.toFixed(0)}a${profile.total ? ` / ${profile.total.toFixed(0)}t` : ""})`,
+                  data: buildCurve(profile.carry, profile.apex),
+                  borderColor: profile.color,
+                  backgroundColor: "transparent",
+                  borderWidth: 2,
+                  pointRadius: 0,
+                  tension: 0,
+                });
+                if (profile.total && profile.total > profile.carry + 1) {
+                  chartDatasets.push({
+                    label: `${profile.label} rollout`,
+                    data: [{ x: profile.carry, y: 0 }, { x: profile.total, y: 0 }],
+                    borderColor: profile.color,
+                    backgroundColor: "transparent",
+                    borderDash: [5, 5],
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    tension: 0,
+                  });
+                }
+              });
+
+              const maxX = Math.max(...profiles.map((profile) => profile.total ?? profile.carry), 120);
+              const maxY = Math.max(...profiles.map((profile) => profile.apex), 20);
+              clubFlightChart = new window.Chart(document.getElementById("clubFlightPathLab"), {
+                type: "line",
+                data: { datasets: chartDatasets },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  interaction: { mode: "nearest", intersect: false },
+                  plugins: { legend: { position: "top" } },
+                  scales: {
+                    x: { type: "linear", min: 0, max: Math.ceil(maxX * 1.05), title: { display: true, text: "Distance (yds)" } },
+                    y: { min: 0, max: Math.ceil(maxY * 1.25), title: { display: true, text: "Height (yds)" } },
+                  },
+                },
+              });
+              const sampleLabel = representativePoints.length === nonOutlierPoints.length && representativePoints.length !== flightPoints.length
+                ? `${representativePoints.length} non-outlier shots`
+                : `${representativePoints.length} shots`;
+              flightCallout.textContent = `Representative trajectories from ${sampleLabel}. c=carry, a=apex, t=total.`;
+            }
+
             if (window.Chart) {
               if (clubCarryChart) clubCarryChart.destroy();
               clubCarryChart = new window.Chart(document.getElementById("clubCarryChartLab"), {
@@ -1538,6 +1676,7 @@ def render_clubs_page() -> str:
           ["all", "last3", "last1"].forEach((filter) => {
             const button = document.createElement("button");
             button.type = "button";
+            button.dataset.filter = filter;
             button.textContent = filter === "all" ? "All data" : filter === "last3" ? "Last 3" : "Last 1";
             button.style.border = "1px solid rgba(30,52,10,0.12)";
             button.style.background = filter === currentSessionFilter ? "#408114" : "#fff";
@@ -1551,8 +1690,9 @@ def render_clubs_page() -> str:
             button.style.transition = "all 0.15s ease";
             button.onclick = () => {
               currentSessionFilter = filter;
+              pathCloudFilterContainer.dataset.activeFilter = filter;
               document.querySelectorAll("#path-cloud-filter-lab button").forEach((btn) => {
-                const isActive = btn.textContent === button.textContent;
+                const isActive = btn.dataset.filter === filter;
                 btn.style.background = isActive ? "#408114" : "#fff";
                 btn.style.color = isActive ? "#fff" : "#1B7114";
               });
