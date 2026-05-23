@@ -139,6 +139,33 @@ def render_html() -> str:
         border-color: var(--accent);
         color: var(--accent);
       }
+      .compare-mode-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .compare-mode-btn {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 12px;
+        background: #fff;
+        color: var(--accent2);
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .compare-mode-btn.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+      }
+      .compare-note {
+        margin: 0 0 8px;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
       /* ── Grid & panels ──────────────────────────────── */
       .grid { display: grid; gap: 16px; }
       .stats {
@@ -155,28 +182,11 @@ def render_html() -> str:
       .stat-value { font-size: 1.9rem; font-weight: 800; margin-bottom: 4px; }
       .stat-label { color: var(--muted); font-size: 0.92rem; }
 
-      /* ── Next session focus ─────────────────────────── */
-      .next-session { margin-bottom: 28px; }
-      .next-session-list {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        display: grid;
-        gap: 10px;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      }
-      .next-session-item {
-        border-left: 4px solid var(--good);
-        padding: 12px 14px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.03);
-      }
-      .next-session-item h3 { margin: 0 0 4px; font-size: 1rem; }
-
       /* ── Charts ─────────────────────────────────────── */
       .charts {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
         margin-bottom: 28px;
+        align-items: start;
       }
       .chart-wrap { display: flex; flex-direction: column; }
       .chart-canvas { position: relative; height: 380px; width: 100%; }
@@ -434,7 +444,7 @@ def render_html() -> str:
       <section class="hero">
         <div class="panel">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;">
-            <div class="hero-eyebrow">Jerry Gamblin &bull; Range Performance Lab</div>
+            <div class="hero-eyebrow">JGamblin &bull; Range Performance Lab</div>
             <a class="gh-link" href="https://github.com/jgamblin/golf" target="_blank" rel="noopener">
               <svg class="gh-icon" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.012 8.012 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
@@ -460,6 +470,29 @@ def render_html() -> str:
       <!-- ── Overview stats ─────────────────────────────── -->
       <section class="grid stats" id="overview"></section>
 
+      <!-- ── Club overview ─────────────────────────────── -->
+      <section class="grid charts">
+        <div class="panel chart-wrap">
+          <h2>Club ladder</h2>
+          <p class="compare-note">Switch between actual clubs and clustered groups. Actual clubs stay in bag order; clusters combine low irons, mid irons, high irons, wedges, and long clubs.</p>
+          <div class="compare-mode-controls" role="tablist" aria-label="Club comparison mode">
+            <button class="compare-mode-btn active" type="button" data-mode="actual" aria-pressed="true">Actual clubs</button>
+            <button class="compare-mode-btn" type="button" data-mode="clusters" aria-pressed="false">Club clusters</button>
+          </div>
+          <div class="chart-canvas" style="height:260px;">
+            <canvas id="clubOverviewChart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid tables">
+        <div class="panel">
+          <h2>What changed since last session</h2>
+          <p style="margin:8px 0 14px;font-size:0.88rem;color:var(--muted)">A quick read on the clubs that moved the most since the prior session.</p>
+          <div class="recommendation-list" id="last-session-changes"></div>
+        </div>
+      </section>
+
       <!-- ── Dashboard content ───────────────────────── -->
 
       <!-- ── Charts ────────────────────────────────────── -->
@@ -473,25 +506,16 @@ def render_html() -> str:
           <div class="forecast-callout" id="trend-forecast-callout" style="display:none;"></div>
         </div>
 
-        <div class="panel chart-wrap">
-          <h2>Miss direction trend</h2>
-          <p style="margin:0 0 8px;font-size:0.88rem;color:var(--muted)">Positive = right miss &nbsp;|&nbsp; Negative = left miss</p>
-          <div class="chart-canvas">
-            <canvas id="missDirectionChart"></canvas>
-          </div>
-        </div>
-
       </section>
       <!-- ── Tables ────────────────────────────────────── -->
       <section class="grid tables">
         <div class="panel">
-          <h2>Sessions</h2>
-          <div class="sessions-list" id="sessions"></div>
-          <div class="session-pagination" id="sessions-pagination" style="display:none;">
-            <button id="sessions-prev">&#8592; Prev</button>
-            <span class="session-pagination-info" id="sessions-page-info"></span>
-            <button id="sessions-next">Next &#8594;</button>
+          <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap;">
+            <h2 style="margin-bottom:0;">Recent sessions</h2>
+            <a class="site-link" href="./sessions.html" style="margin:0;">Open Session Replay</a>
           </div>
+          <p style="margin:8px 0 14px;font-size:0.88rem;color:var(--muted)">A compact summary of the latest rounds. The full session history lives on the Session Replay page.</p>
+          <div class="sessions-list" id="sessions"></div>
         </div>
       </section>
 
@@ -553,7 +577,6 @@ def render_html() -> str:
         ["Shots", data.overview.total_shots, 0],
         ["Tracked clubs", data.overview.tracked_clubs, 0],
         ["Avg consistency", data.overview.avg_consistency_score, 1],
-        ["Outlier rate", data.overview.avg_outlier_rate, 1, "%"],
       ];
       const overview = document.getElementById("overview");
       overviewItems.forEach(([label, value, digits, suffix = ""]) => {
@@ -562,6 +585,122 @@ def render_html() -> str:
         card.innerHTML = `<div class="stat-value">${number(value, digits, suffix)}</div><div class="stat-label">${label}</div>`;
         overview.appendChild(card);
       });
+
+      const comparisonModes = {
+        actual: {
+          title: "Club ladder",
+          note: "Ordered by club type so actual clubs compare in bag order instead of alphabetically.",
+          data: data.charts.clubs,
+          yLabel: "Carry distance (yds)",
+          legend: "Actual clubs",
+        },
+        clusters: {
+          title: "Club ladder",
+          note: "Grouped by club family so high irons, low irons, wedges, and long clubs compare as stable clusters.",
+          data: data.charts.club_clusters,
+          yLabel: "Carry distance (yds)",
+          legend: "Club clusters",
+        },
+      };
+
+      let clubOverviewChart = null;
+      const renderClubOverview = (mode) => {
+        const config = comparisonModes[mode] || comparisonModes.actual;
+        const canvas = document.getElementById("clubOverviewChart");
+        const title = document.querySelector(".chart-wrap h2");
+        const note = document.querySelector(".compare-note");
+        if (title) title.textContent = config.title;
+        if (note) note.textContent = config.note;
+        if (clubOverviewChart) clubOverviewChart.destroy();
+        clubOverviewChart = createChart("clubOverviewChart", {
+          type: "bar",
+          data: {
+            labels: config.data.labels,
+            datasets: [
+              {
+                label: config.legend === "Actual clubs" ? "Avg carry (yds)" : "Avg carry (cluster avg)",
+                data: config.data.avg_carry_distance,
+                backgroundColor: "rgba(64,129,20,0.65)",
+                borderColor: "#408114",
+                borderWidth: 1,
+              },
+              {
+                label: config.legend === "Actual clubs" ? "Consistency score" : "Consistency score (cluster avg)",
+                data: config.data.consistency_score,
+                backgroundColor: "rgba(27,113,20,0.55)",
+                borderColor: "#1B7114",
+                borderWidth: 1,
+                yAxisID: "y1",
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  afterLabel: (ctx) => {
+                    if (mode !== "clusters") return "";
+                    const idx = ctx.dataIndex;
+                    const labels = config.data.club_labels?.[idx] || [];
+                    return labels.length ? `Includes: ${labels.join(", ")}` : "";
+                  },
+                },
+              },
+            },
+            scales: {
+              y: { beginAtZero: true, title: { display: true, text: config.yLabel } },
+              y1: { beginAtZero: true, position: "right", max: 100, grid: { drawOnChartArea: false } },
+            },
+          },
+        });
+      };
+      renderClubOverview("actual");
+
+      const compareButtons = document.querySelectorAll(".compare-mode-btn");
+      compareButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const mode = button.dataset.mode;
+          compareButtons.forEach((btn) => {
+            const active = btn === button;
+            btn.classList.toggle("active", active);
+            btn.setAttribute("aria-pressed", active ? "true" : "false");
+          });
+          renderClubOverview(mode);
+        });
+      });
+
+      const lastSessionChanges = document.getElementById("last-session-changes");
+      const deltas = data.latest_session_deltas;
+      if (!lastSessionChanges) {
+        // no-op
+      } else if (!deltas || !deltas.available || !deltas.clubs.length) {
+        const empty = document.createElement("p");
+        empty.className = "small";
+        empty.textContent = "Need at least two sessions with overlapping clubs to show change-over-time highlights.";
+        lastSessionChanges.appendChild(empty);
+      } else {
+        const latestLabel = deltas.latest_label ? String(deltas.latest_label).slice(0, 10) : "latest";
+        const previousLabel = deltas.previous_label ? String(deltas.previous_label).slice(0, 10) : "previous";
+        const subtitle = document.createElement("p");
+        subtitle.className = "small";
+        subtitle.textContent = `${latestLabel} compared with ${previousLabel}`;
+        lastSessionChanges.appendChild(subtitle);
+        deltas.clubs.slice(0, 3).forEach((item) => {
+          const row = document.createElement("div");
+          row.className = "recommendation rec-med";
+          row.innerHTML = `
+            <div class="recommendation-header">
+              <h3 style="margin:0;">${item.club_label}</h3>
+              <span class="severity-badge badge-med">Change</span>
+            </div>
+            <p class="summary" style="margin:0 0 6px;color:var(--text);">Carry ${deltaHtml(item.carry_delta, 1, " yds")} · Smash ${deltaHtml(item.smash_delta, 2)} · Offline ${deltaHtml(item.offline_delta, 1, " yds", true)}</p>
+            <div class="evidence">Actual club comparison, bag ordered.</div>
+          `;
+          lastSessionChanges.appendChild(row);
+        });
+      }
 
 
       // ── Session trend chart ───────────────────────────────────────────
@@ -656,58 +795,10 @@ def render_html() -> str:
         });
       })();
 
-      // ── Miss direction trend chart ────────────────────────────────────
-      const missDirectionChart = createChart("missDirectionChart", {
-        type: "bar",
-        data: {
-          labels: data.charts.timeline.labels,
-          datasets: [
-            {
-              label: "Avg lateral miss (yds)",
-              data: data.charts.timeline.miss_direction,
-              backgroundColor: data.charts.timeline.miss_direction.map((v) =>
-                v === null ? "transparent" : v > 0 ? "rgba(30, 52, 10, 0.7)" : "rgba(64, 129, 20, 0.7)"
-              ),
-              borderColor: data.charts.timeline.miss_direction.map((v) =>
-                v === null ? "transparent" : v > 0 ? "#1E340A" : "#408114"
-              ),
-              borderWidth: 1,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: (ctx) => {
-                  const v = ctx.parsed.y;
-                  if (v === null) return "No data";
-                  return `${Math.abs(v).toFixed(1)} yds ${v > 0 ? "right" : "left"}`;
-                },
-              },
-            },
-          },
-          scales: {
-            y: {
-              title: { display: true, text: "Lateral deviation (yds)" },
-              ticks: { callback: (v) => (v > 0 ? `+${v} R` : v < 0 ? `${v} L` : "0") },
-            },
-          },
-        },
-      });
-
-      // ── Sessions list (paginated, 5 per page, newest first) ──────────────
+      // ── Recent sessions list (latest 3) ────────────────────────────────
       (() => {
-        const PAGE_SIZE = 5;
-        const allSessions = [...data.sessions].reverse();
-        let page = 0;
+        const allSessions = [...data.sessions].reverse().slice(0, 3);
         const container = document.getElementById("sessions");
-        const pagination = document.getElementById("sessions-pagination");
-        const pageInfo = document.getElementById("sessions-page-info");
-        const prevBtn = document.getElementById("sessions-prev");
-        const nextBtn = document.getElementById("sessions-next");
 
         function statCell(val, lbl) {
           const el = document.createElement("div");
@@ -723,11 +814,9 @@ def render_html() -> str:
           return el;
         }
 
-        function renderPage() {
+        function renderRows() {
           container.innerHTML = "";
-          const start = page * PAGE_SIZE;
-          const slice = allSessions.slice(start, start + PAGE_SIZE);
-          slice.forEach((session) => {
+          allSessions.forEach((session) => {
             const dateStr = session.session_timestamp
               ? new Date(session.session_timestamp).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })
               : session.source_file;
@@ -753,23 +842,13 @@ def render_html() -> str:
             row.appendChild(statCell(number(session.outlier_rate, 0, "%"), "Outliers"));
             container.appendChild(row);
           });
-
-          const totalPages = Math.ceil(allSessions.length / PAGE_SIZE);
-          if (totalPages > 1) {
-            pagination.style.display = "flex";
-            pageInfo.textContent = `${start + 1}–${Math.min(start + PAGE_SIZE, allSessions.length)} of ${allSessions.length}`;
-            prevBtn.disabled = page === 0;
-            nextBtn.disabled = page >= totalPages - 1;
-          }
         }
 
-        prevBtn.addEventListener("click", () => { page--; renderPage(); });
-        nextBtn.addEventListener("click", () => { page++; renderPage(); });
-        renderPage();
+        renderRows();
       })();
 
 
-      if (!sessionTrendChart || !missDirectionChart) {
+      if (!sessionTrendChart) {
         showChartError("Some charts could not be initialized. Refresh after the page assets finish loading.");
       }
 
@@ -898,6 +977,7 @@ def _render_subpage(title: str, heading: str, intro: str, content_html: str) -> 
       </nav>
       <section class=\"panel\">
         <h1>{heading}</h1>
+        <p class="small">Each row shows an actual club plus its group badge, so comparisons stay readable when your session mix changes.</p>
         <p>{intro}</p>
       </section>
       {content_html}
@@ -910,54 +990,8 @@ def _render_subpage(title: str, heading: str, intro: str, content_html: str) -> 
 def render_clubs_page() -> str:
     body = """
       <section class=\"panel\">
-        <h2>Club Overview</h2>
-        <p class=\"small\">Club-specific scoring, strike quality, and dispersion now live here instead of the landing page.</p>
-        <div style=\"display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));\">
-          <div class=\"chart-canvas small\"><canvas id=\"clubBarsLab\"></canvas></div>
-          <div class=\"chart-canvas small\"><canvas id=\"smashHeadroomLab\"></canvas></div>
-          <div class=\"chart-canvas small\"><canvas id=\"offlineSummaryLab\"></canvas></div>
-        </div>
-      </section>
-      <section class=\"panel\">
-        <h2>Club Summary</h2>
-        <p class=\"small\">Choose a club to open a deeper trend and dispersion view without returning to the landing page.</p>
-        <div style=\"overflow-x:auto;\"><table>
-          <thead><tr><th>Club</th><th>Shots</th><th>Avg carry</th><th>Avg smash</th><th>Avg offline</th><th>Consistency</th><th>Outliers</th></tr></thead>
-          <tbody id=\"club-summary-body-lab\"></tbody>
-        </table></div>
-      </section>
-      <section class=\"panel\">
-        <h2>Spin And Tempo At A Glance</h2>
-        <div style=\"display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));\">
-          <div class=\"chart-canvas small\"><canvas id=\"spinChart\"></canvas></div>
-          <div class=\"chart-canvas small\"><canvas id=\"tempoChart\"></canvas></div>
-        </div>
-      </section>
-      <section class=\"panel\">
-        <h2>Spin And Launch Profile</h2>
-        <div style=\"overflow-x:auto;\"><table>
-          <thead><tr><th>Club</th><th>Spin avg</th><th>Spin SD</th><th>Axis avg</th><th>Launch dir avg</th><th>Apex avg</th></tr></thead>
-          <tbody id=\"spin-body\"></tbody>
-        </table></div>
-      </section>
-      <section class=\"panel\">
-        <h2>Tempo And Sequencing</h2>
-        <div style=\"overflow-x:auto;\"><table>
-          <thead><tr><th>Club</th><th>Backswing</th><th>Downswing</th><th>Swing tempo</th><th>Tempo baseline</th><th>Tempo error</th><th>Basis</th></tr></thead>
-          <tbody id=\"tempo-body\"></tbody>
-        </table></div>
-      </section>
-      <section class=\"panel\">
-        <h2>Consistency By Session</h2>
-        <div class=\"heatmap-wrap\" id=\"consistency-heatmap-club-lab\"></div>
-      </section>
-      <section class=\"panel\">
-        <h2>Latest Vs Previous Session</h2>
-        <p class=\"small\" id=\"delta-caption-lab\"></p>
-        <div style=\"overflow-x:auto;\"><table>
-          <thead><tr><th>Club</th><th>Shots</th><th>Carry delta</th><th>Smash delta</th><th>Offline delta</th></tr></thead>
-          <tbody id=\"session-delta-body-lab\"></tbody>
-        </table></div>
+        <h2>Club Lab</h2>
+        <p class=\"small\">Choose a club to inspect its path, face, carry, smash, dispersion, and session-by-session trend. Club summaries now live on the Overview page.</p>
       </section>
       <section class=\"panel\">
         <div style=\"display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:14px;\">
@@ -1026,97 +1060,12 @@ def render_clubs_page() -> str:
           const sign = numeric > 0 ? "+" : "";
           return `${sign}${numeric.toFixed(digits)}${suffix}`;
         };
-        const spinBody = document.getElementById("spin-body");
-        const tempoBody = document.getElementById("tempo-body");
-        const clubSummaryBody = document.getElementById("club-summary-body-lab");
         const clubNavPills = document.getElementById("club-nav-pills-lab");
-        const spin = (data.spin_profile || {}).per_club || {};
-        const tempo = (data.tempo_profile || {}).per_club || {};
-        const spinLabels = Object.keys(spin).sort();
-        const smashLabels = (data.clubs || []).map((c) => c.club_label);
-        const smashActual = (data.clubs || []).map((c) => c.avg_smash_factor != null ? parseFloat(c.avg_smash_factor.toFixed(3)) : null);
-        const smashPotential = (data.clubs || []).map((c) => c.potential_smash_factor != null ? parseFloat(c.potential_smash_factor.toFixed(3)) : null);
         let clubCarryChart = null;
         let clubSmashChart = null;
         let clubDispersionChart = null;
         let clubPathCloudChart = null;
         let clubFlightChart = null;
-        if (window.Chart && spinLabels.length) {
-          new window.Chart(document.getElementById("clubBarsLab"), {
-            type: "bar",
-            data: {
-              labels: data.charts.clubs.labels,
-              datasets: [
-                { label: "Avg carry (yds)", data: data.charts.clubs.avg_carry_distance, backgroundColor: "rgba(64,129,20,0.6)" },
-                { label: "Consistency score", data: data.charts.clubs.consistency_score, backgroundColor: "rgba(27,113,20,0.6)", yAxisID: "y1" },
-              ],
-            },
-            options: {
-              responsive: true,
-              maintainAspectRatio: false,
-              scales: {
-                y: { beginAtZero: true, title: { display: true, text: "Carry distance (yds)" } },
-                y1: { beginAtZero: true, position: "right", max: 100, grid: { drawOnChartArea: false } },
-              },
-            },
-          });
-          new window.Chart(document.getElementById("smashHeadroomLab"), {
-            type: "bar",
-            data: {
-              labels: smashLabels,
-              datasets: [
-                { type: "bar", label: "Avg smash factor", data: smashActual, backgroundColor: "rgba(64,129,20,0.65)", borderColor: "#408114", borderWidth: 1, order: 2 },
-                { type: "line", label: "Personal ceiling", data: smashPotential, borderColor: "#1B7114", backgroundColor: "transparent", borderWidth: 2, pointRadius: 4, tension: 0, order: 1 },
-              ],
-            },
-            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false, min: 0.9 } } },
-          });
-          const offlineSorted = [...data.clubs]
-            .filter((c) => c.avg_total_deviation_distance != null || c.avg_carry_deviation_distance != null)
-            .sort((a, b) => Math.abs(b.avg_total_deviation_distance ?? b.avg_carry_deviation_distance ?? 0) - Math.abs(a.avg_total_deviation_distance ?? a.avg_carry_deviation_distance ?? 0));
-          new window.Chart(document.getElementById("offlineSummaryLab"), {
-            type: "bar",
-            data: {
-              labels: offlineSorted.map((c) => c.club_label),
-              datasets: [{
-                label: "Avg offline (yds)",
-                data: offlineSorted.map((c) => parseFloat(Math.abs(c.avg_total_deviation_distance ?? c.avg_carry_deviation_distance ?? 0).toFixed(1))),
-                backgroundColor: "rgba(30,52,10,0.65)",
-                borderColor: "#1E340A",
-                borderWidth: 1.2,
-              }],
-            },
-            options: { indexAxis: "y", responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
-          });
-          new window.Chart(document.getElementById("spinChart"), {
-            type: "bar",
-            data: {
-              labels: spinLabels,
-              datasets: [{
-                label: "Spin rate avg",
-                data: spinLabels.map((c) => spin[c].spin_rate_avg),
-                backgroundColor: "rgba(64,129,20,0.65)",
-                borderColor: "#408114",
-                borderWidth: 1,
-              }],
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
-          });
-          new window.Chart(document.getElementById("tempoChart"), {
-            type: "line",
-            data: {
-              labels: spinLabels,
-              datasets: [{
-                label: "Tempo error avg",
-                data: spinLabels.map((c) => (tempo[c] || {}).tempo_error_avg),
-                borderColor: "#1B7114",
-                backgroundColor: "rgba(27,113,20,0.1)",
-                tension: 0.3,
-              }],
-            },
-            options: { responsive: true, maintainAspectRatio: false },
-          });
-        }
         (data.clubs || []).forEach((club) => {
           const pill = document.createElement("button");
           pill.type = "button";
@@ -1132,121 +1081,6 @@ def render_clubs_page() -> str:
           pill.style.fontFamily = "inherit";
           clubNavPills.appendChild(pill);
 
-          const offline = club.avg_total_deviation_distance ?? club.avg_carry_deviation_distance;
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td><button type="button" class="club-link-btn" data-club="${club.club_label}">${club.club_label}</button></td>
-            <td>${club.shot_count}</td>
-            <td>${number(club.avg_carry_distance, 1, " yds")}</td>
-            <td>${number(club.avg_smash_factor, 2)}</td>
-            <td>${number(offline, 1, " yds")}</td>
-            <td>${number(club.consistency_score, 1)}</td>
-            <td>${number(club.outlier_rate, 0, "%")}</td>
-          `;
-          clubSummaryBody.appendChild(row);
-        });
-        Object.keys(spin).sort().forEach((club) => {
-          const s = spin[club] || {};
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td>${club}</td>
-            <td>${fmt(s.spin_rate_avg, 0)}</td>
-            <td>${fmt(s.spin_rate_stddev, 0)}</td>
-            <td>${fmt(s.spin_axis_avg, 2)}</td>
-            <td>${fmt(s.launch_direction_avg, 2)}</td>
-            <td>${fmt(s.apex_height_avg, 1, " yds")}</td>
-          `;
-          spinBody.appendChild(row);
-        });
-        Object.keys(tempo).sort().forEach((club) => {
-          const t = tempo[club] || {};
-          const row = document.createElement("tr");
-          row.innerHTML = `
-            <td>${club}</td>
-            <td>${fmt(t.backswing_time_avg, 3, " s")}</td>
-            <td>${fmt(t.downswing_time_avg, 3, " s")}</td>
-            <td>${fmt(t.swing_tempo_avg, 2)}</td>
-            <td>${fmt(t.target_tempo_avg, 2)}</td>
-            <td>${fmt(t.tempo_error_avg, 2)}</td>
-            <td>${t.tempo_error_basis || "—"}</td>
-          `;
-          tempoBody.appendChild(row);
-        });
-
-        const heatmapContainer = document.getElementById("consistency-heatmap-club-lab");
-        if (heatmapContainer && data.sessions.length) {
-          const sessionLabels = data.sessions.map((s) =>
-            s.session_timestamp ? new Date(s.session_timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : s.source_file.slice(0, 10)
-          );
-          const allClubLabels = [...new Set(data.sessions.flatMap((s) => (s.club_summaries || []).map((c) => c.club_label)))].sort();
-          const scoreMap = {};
-          data.sessions.forEach((session, sIdx) => {
-            (session.club_summaries || []).forEach((club) => {
-              if (!scoreMap[club.club_label]) scoreMap[club.club_label] = {};
-              scoreMap[club.club_label][sIdx] = club.consistency_score;
-            });
-          });
-          const table = document.createElement("table");
-          table.className = "heatmap-table";
-          const thead = table.createTHead();
-          const headerRow = thead.insertRow();
-          const clubTh = document.createElement("th");
-          clubTh.textContent = "Club";
-          clubTh.style.textAlign = "left";
-          headerRow.appendChild(clubTh);
-          sessionLabels.forEach((label) => {
-            const th = document.createElement("th");
-            th.textContent = label;
-            headerRow.appendChild(th);
-          });
-          const tbody = table.createTBody();
-          allClubLabels.forEach((clubLabel) => {
-            const row = tbody.insertRow();
-            const nameCell = row.insertCell();
-            nameCell.className = "heatmap-club";
-            nameCell.textContent = clubLabel;
-            data.sessions.forEach((_, sIdx) => {
-              const score = scoreMap[clubLabel]?.[sIdx];
-              const cell = row.insertCell();
-              if (score != null) {
-                cell.className = "heatmap-cell";
-                cell.style.backgroundColor = score >= 75 ? "rgba(27,113,20,0.18)" : score >= 50 ? "rgba(77,110,36,0.18)" : "rgba(30,52,10,0.15)";
-                cell.style.color = score >= 75 ? "#1B7114" : score >= 50 ? "#4D6E24" : "#1E340A";
-                cell.textContent = score.toFixed(0);
-              } else {
-                cell.className = "heatmap-empty";
-                cell.textContent = "—";
-              }
-            });
-          });
-          heatmapContainer.appendChild(table);
-        }
-
-        const deltaCaption = document.getElementById("delta-caption-lab");
-        const deltaBody = document.getElementById("session-delta-body-lab");
-        const deltas = data.latest_session_deltas;
-        if (!deltas || !deltas.available || !deltas.clubs.length) {
-          deltaCaption.textContent = "Need at least two sessions with overlapping clubs to show deltas.";
-          const row = document.createElement("tr");
-          row.innerHTML = `<td colspan="5" class="small">No comparable clubs available.</td>`;
-          deltaBody.appendChild(row);
-        } else {
-          const latestLabel = deltas.latest_label ? String(deltas.latest_label).slice(0, 10) : "latest";
-          const previousLabel = deltas.previous_label ? String(deltas.previous_label).slice(0, 10) : "previous";
-          deltaCaption.textContent = `${latestLabel} compared with ${previousLabel}`;
-          deltas.clubs.forEach((item) => {
-            const row = document.createElement("tr");
-            row.innerHTML = `
-              <td>${item.club_label}</td>
-              <td>${item.latest_shot_count ?? "-"}</td>
-              <td>${deltaHtml(item.carry_delta, 1, " yds")}</td>
-              <td>${deltaHtml(item.smash_delta, 2)}</td>
-              <td>${deltaHtml(item.offline_delta, 1, " yds")}</td>
-            `;
-            deltaBody.appendChild(row);
-          });
-        }
-
         function renderClubDetail(clubLabel) {
           const club = (data.clubs || []).find((item) => item.club_label === clubLabel);
           if (!club) return;
@@ -1256,7 +1090,7 @@ def render_clubs_page() -> str:
           if (clubPathCloudChart) clubPathCloudChart.destroy();
           if (clubFlightChart) clubFlightChart.destroy();
 
-          document.getElementById("club-detail-name-lab").textContent = clubLabel;
+          document.getElementById("club-detail-name-lab").innerHTML = `${clubLabel}${club.club_group ? ` <span class="small">· ${club.club_group}</span>` : ""}`;
           const velocityBadge = document.getElementById("club-velocity-badge-lab");
           const velocity = club.improvement_velocity || "Holding steady";
           velocityBadge.textContent = velocity;
@@ -1713,10 +1547,6 @@ def render_clubs_page() -> str:
           const button = event.target.closest("button[data-club]");
           if (button) renderClubDetail(button.dataset.club);
         });
-        clubSummaryBody.addEventListener("click", (event) => {
-          const button = event.target.closest("button[data-club]");
-          if (button) renderClubDetail(button.dataset.club);
-        });
         if ((data.clubs || []).length) {
           renderClubDetail(data.clubs[0].club_label);
         }
@@ -1959,7 +1789,7 @@ def render_gapping_page() -> str:
           const t = target[club.club_label] || {};
           const row = document.createElement("tr");
           row.innerHTML = `
-            <td>${club.club_label}</td>
+            <td><div>${club.club_label}</div><div class="small">${club.club_group || "Club"}</div></td>
             <td>${fmt(t.auto_target_carry_distance_avg, 0, " yds")}</td>
             <td>${fmt(club.avg_carry_distance, 1, " yds")}</td>
             <td>${fmt(t.auto_target_total_distance_avg, 0, " yds")}</td>
@@ -2479,7 +2309,10 @@ def render_session_reviews_page() -> str:
               html += `
               <div class="club-card">
                 <div class="club-card-header">
-                  <h3>${club.club_label || "Club"}</h3>
+                  <div>
+                    <h3>${club.club_label || "Club"}</h3>
+                    <div class="small">${club.club_group || "Club"}</div>
+                  </div>
                   <span class="grade-badge ${gc}">${gLabel}</span>
                 </div>
                 <div class="club-stats">
