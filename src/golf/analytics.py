@@ -538,7 +538,36 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
         smash_trend.append(round_or_none(session.get("avg_smash_factor"), 2))
         offline_trend.append(round_or_none(session.get("avg_offline_distance")))
 
-    club_labels = [club["club_label"] for club in club_summaries]
+    club_rows = sorted(club_summaries, key=lambda club: _club_bag_order_key(str(club["club_label"])))
+    club_labels = [club["club_label"] for club in club_rows]
+
+    group_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for club in club_rows:
+        group_rows[_club_group_label(str(club.get("club_label")))].append(club)
+
+    def weighted_average(rows: list[dict[str, Any]], field: str) -> float | None:
+        total_weight = 0.0
+        total_value = 0.0
+        for row in rows:
+            value = row.get(field)
+            weight = row.get("shot_count") or 0
+            if isinstance(value, (int, float)) and weight:
+                total_value += float(value) * float(weight)
+                total_weight += float(weight)
+        if total_weight == 0:
+            return average([row.get(field) for row in rows])
+        return total_value / total_weight
+
+    comparison_labels = sorted(group_rows.keys(), key=_club_group_order_key)
+    comparison_groups = {
+        "labels": comparison_labels,
+        "avg_carry_distance": [round_or_none(weighted_average(group_rows[label], "avg_carry_distance")) for label in comparison_labels],
+        "avg_smash_factor": [round_or_none(weighted_average(group_rows[label], "avg_smash_factor"), 2) for label in comparison_labels],
+        "consistency_score": [round_or_none(weighted_average(group_rows[label], "consistency_score")) for label in comparison_labels],
+        "club_count": [len(group_rows[label]) for label in comparison_labels],
+        "shot_count": [sum(int(row.get("shot_count") or 0) for row in group_rows[label]) for label in comparison_labels],
+        "club_labels": [[row["club_label"] for row in group_rows[label]] for label in comparison_labels],
+    }
     dispersion = []
     path_cloud = []
     flight_samples = []
@@ -606,6 +635,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
             "avg_smash_factor": [round_or_none(club.get("avg_smash_factor"), 2) for club in club_summaries],
             "consistency_score": [round_or_none(club.get("consistency_score")) for club in club_summaries],
         },
+        "club_clusters": comparison_groups,
         "dispersion": dispersion,
         "path_cloud": path_cloud,
         "flight_samples": flight_samples,
@@ -626,7 +656,7 @@ def build_latest_session_deltas(session_summaries: list[dict[str, Any]]) -> dict
 
     previous_by_club = {club["club_label"]: club for club in previous.get("club_summaries", [])}
     latest_by_club = {club["club_label"]: club for club in latest.get("club_summaries", [])}
-    shared_clubs = sorted(set(previous_by_club.keys()) & set(latest_by_club.keys()))
+    shared_clubs = sorted(set(previous_by_club.keys()) & set(latest_by_club.keys()), key=_club_bag_order_key)
 
     club_deltas: list[dict[str, Any]] = []
     for club_label in shared_clubs:
@@ -988,6 +1018,62 @@ def _club_bag_order_key(club_label: str) -> tuple[int, int, str]:
         return (5, 0, club_label)
 
     return (9, 99, club_label)
+
+
+def _club_group_label(club_label: str) -> str:
+    label = (club_label or "").strip().lower()
+    if "driver" in label:
+        return "Driver"
+
+    wood_match = re.search(r"(\d+)\s*wood|wood\s*(\d+)", label)
+    if wood_match or "wood" in label:
+        return "Fairway Woods"
+
+    if "hybrid" in label or "rescue" in label:
+        return "Hybrids"
+
+    iron_match = re.search(r"(\d+)\s*iron|iron\s*(\d+)", label)
+    if iron_match:
+        number = next((int(part) for part in iron_match.groups() if part), 7)
+        if number <= 5:
+            return "Low Irons (3-5)"
+        if number <= 7:
+            return "Mid Irons (6-7)"
+        return "High Irons (8-9)"
+    if "iron" in label:
+        return "Irons"
+
+    if "pitching" in label or re.search(r"\bpw\b", label):
+        return "Wedges"
+    if "gap" in label or "approach" in label or re.search(r"\bgw\b|\baw\b", label):
+        return "Wedges"
+    if "sand" in label or re.search(r"\bsw\b", label):
+        return "Wedges"
+    if "lob" in label or re.search(r"\blw\b", label):
+        return "Wedges"
+    if "wedge" in label:
+        return "Wedges"
+
+    if "putter" in label:
+        return "Putter"
+
+    return "Other"
+
+
+def _club_group_order_key(group_label: str) -> tuple[int, str]:
+    order = {
+        "Driver": 0,
+        "Fairway Woods": 1,
+        "Hybrids": 2,
+        "Low Irons (3-5)": 3,
+        "Mid Irons (6-7)": 4,
+        "High Irons (8-9)": 5,
+        "Irons": 6,
+        "Wedges": 7,
+        "Putter": 8,
+        "Other": 9,
+    }
+    return (order.get(group_label, 99), group_label)
 
 
 def _robust_carry_baseline(shots: list[dict[str, Any]]) -> float | None:
@@ -1658,6 +1744,7 @@ def build_session_review(
         club_reviews.append(
             {
                 "club_label": club.get("club_label"),
+                "club_group": _club_group_label(str(club.get("club_label"))),
                 "grade": grade,
                 "shot_count": club.get("shot_count"),
                 "avg_carry_distance": round_or_none(club.get("avg_carry_distance")),
@@ -1724,10 +1811,12 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
     for shot in all_shots:
         club_buckets[shot["club_label"]].append(shot)
 
+    club_sort_key = lambda club_label: _club_bag_order_key(str(club_label))
+
     # First pass: build summaries without normalised weights.
     raw_club_summaries = [
         summarize_club(club_label, club_shots)
-        for club_label, club_shots in sorted(club_buckets.items(), key=lambda item: item[0])
+        for club_label, club_shots in sorted(club_buckets.items(), key=lambda item: club_sort_key(item[0]))
     ]
 
     # Derive population-calibrated consistency weights from the full club set.
@@ -1736,7 +1825,7 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
     # Second pass: rebuild summaries with calibrated weights.
     club_summaries = [
         summarize_club(club_label, club_buckets[club_label], pop_weights)
-        for club_label in sorted(club_buckets.keys())
+        for club_label in sorted(club_buckets.keys(), key=club_sort_key)
     ]
 
     session_summaries = [summarize_session(session, pop_weights) for session in enriched_sessions]
@@ -1782,6 +1871,7 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
                 "club_summaries": [
                     {
                         **club,
+                        "club_group": _club_group_label(str(club.get("club_label"))),
                         "avg_carry_distance": round_or_none(club.get("avg_carry_distance")),
                         "avg_total_distance": round_or_none(club.get("avg_total_distance")),
                         "avg_ball_speed": round_or_none(club.get("avg_ball_speed")),
@@ -1809,6 +1899,7 @@ def build_analysis(sessions: list[dict[str, Any]], previous_forecasts: dict[str,
         "clubs": [
             {
                 **club,
+                "club_group": _club_group_label(str(club.get("club_label"))),
                 "avg_carry_distance": round_or_none(club.get("avg_carry_distance")),
                 "avg_total_distance": round_or_none(club.get("avg_total_distance")),
                 "avg_ball_speed": round_or_none(club.get("avg_ball_speed")),
