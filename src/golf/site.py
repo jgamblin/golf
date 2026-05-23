@@ -1080,6 +1080,7 @@ def render_clubs_page() -> str:
           pill.style.cursor = "pointer";
           pill.style.fontFamily = "inherit";
           clubNavPills.appendChild(pill);
+        });
 
         function renderClubDetail(clubLabel) {
           const club = (data.clubs || []).find((item) => item.club_label === clubLabel);
