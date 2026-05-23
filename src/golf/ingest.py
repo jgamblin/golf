@@ -163,7 +163,12 @@ def parse_timestamp(value: str) -> str | None:
     cleaned = value.strip()
     if not cleaned:
         return None
-    for fmt in ("%m/%d/%y %H:%M:%S", "%m/%d/%Y %H:%M:%S"):
+    for fmt in (
+        "%m/%d/%y %H:%M:%S",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%y %I:%M:%S %p",
+        "%m/%d/%Y %I:%M:%S %p",
+    ):
         try:
             parsed = dt.datetime.strptime(cleaned, fmt)
             return parsed.isoformat()

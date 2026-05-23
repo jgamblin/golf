@@ -198,6 +198,10 @@ class TestParseTimestamp(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertTrue(result.startswith("2026-04-19"))
 
+    def test_am_pm_format(self) -> None:
+        result = parse_timestamp("05/23/26 08:27:28 AM")
+        self.assertEqual(result, "2026-05-23T08:27:28")
+
     def test_empty_string_returns_none(self) -> None:
         self.assertIsNone(parse_timestamp(""))
 
