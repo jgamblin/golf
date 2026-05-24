@@ -2,11 +2,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from .analytics import build_analysis
 from .ingest import load_sessions
 from .site import write_site
+
+
+def normalize_output_dir(path: Path) -> Path:
+    """Normalize accidental trailing backslashes on POSIX output paths."""
+    raw = str(path)
+    if os.name != "nt" and raw.endswith("\\"):
+        return Path(raw.rstrip("\\"))
+    return path
 
 
 def build_command(data_dir: Path, output_dir: Path) -> dict:
@@ -50,7 +59,8 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.command == "build":
-        build_command(args.data_dir, args.output_dir)
+        output_dir = normalize_output_dir(args.output_dir)
+        build_command(args.data_dir, output_dir)
         return 0
     raise ValueError(f"Unsupported command: {args.command}")
 

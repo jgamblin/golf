@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -9,7 +10,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from golf.cli import build_command
+from golf.cli import build_command, normalize_output_dir
 from golf.ingest import parse_float, parse_timestamp
 from golf.analytics import build_forecasts, potential_gap_pct, build_recommendations, build_session_review, build_session_reviews, summarize_session
 
@@ -261,6 +262,14 @@ Date,Player,Club Type,Ball Speed (mph),Club Speed (mph),Carry (yds),Total (yds),
 
 class TestGarminR10Ingestion(unittest.TestCase):
     """Verify that Garmin-specific CSV quirks are handled correctly."""
+
+
+class TestCliPathNormalization(unittest.TestCase):
+    def test_trailing_backslash_is_normalized_on_posix(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX-only behavior")
+        normalized = normalize_output_dir(Path("output/site\\"))
+        self.assertEqual(normalized, Path("output/site"))
 
     def _write_and_load(self, csv_text: str) -> dict:
         from golf.ingest import load_session
