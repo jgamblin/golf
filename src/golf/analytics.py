@@ -528,6 +528,7 @@ def build_recommendations(
 def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[dict[str, Any]], sessions: list[dict[str, Any]]) -> dict[str, Any]:
     timeline_labels = []
     carry_trend = []
+    total_trend = []
     smash_trend = []
     offline_trend = []
     for session in session_summaries:
@@ -535,6 +536,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
         label = stamp[:10] if stamp else session["source_file"]
         timeline_labels.append(label)
         carry_trend.append(round_or_none(session.get("avg_carry_distance")))
+        total_trend.append(round_or_none(session.get("avg_total_distance")))
         smash_trend.append(round_or_none(session.get("avg_smash_factor"), 2))
         offline_trend.append(round_or_none(session.get("avg_offline_distance")))
 
@@ -625,6 +627,7 @@ def chart_payload(session_summaries: list[dict[str, Any]], club_summaries: list[
         "timeline": {
             "labels": timeline_labels,
             "avg_carry_distance": carry_trend,
+            "avg_total_distance": total_trend,
             "avg_smash_factor": smash_trend,
             "avg_offline_distance": offline_trend,
             "miss_direction": miss_trend,

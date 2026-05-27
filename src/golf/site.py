@@ -500,6 +500,10 @@ def render_html() -> str:
 
         <div class="panel chart-wrap">
           <h2>Session trend</h2>
+          <div style="display:flex;gap:6px;margin-bottom:8px;">
+            <button type="button" class="trend-metric-btn active" data-metric="carry" style="font-size:0.78rem;padding:4px 12px;border-radius:6px;border:1px solid rgba(30,52,10,0.2);background:#408114;color:#fff;cursor:pointer;">Carry</button>
+            <button type="button" class="trend-metric-btn" data-metric="total" style="font-size:0.78rem;padding:4px 12px;border-radius:6px;border:1px solid rgba(30,52,10,0.2);background:#fff;color:#1B7114;cursor:pointer;">Total</button>
+          </div>
           <div class="chart-canvas">
             <canvas id="sessionTrend"></canvas>
           </div>
@@ -704,17 +708,25 @@ def render_html() -> str:
 
 
       // ── Session trend chart ───────────────────────────────────────────
-      const sessionTrendChart = (() => {
+      let sessionTrendChart = null;
+      let trendMetricMode = "carry";
+
+      const renderSessionTrend = (metric) => {
         const fc = (data.forecasts || {}).per_club || {};
         const clubsWithFc = Object.entries(fc).filter(([, v]) => v.carry);
         const actualLabels = data.charts.timeline.labels;
-        const allLabels = clubsWithFc.length ? [...actualLabels, "+1", "+2", "+3"] : actualLabels;
-        const nulls3 = clubsWithFc.length ? [null, null, null] : [];
+        const showForecast = metric === "carry" && clubsWithFc.length;
+        const allLabels = showForecast ? [...actualLabels, "+1", "+2", "+3"] : actualLabels;
+        const nulls3 = showForecast ? [null, null, null] : [];
+        const distData = metric === "total"
+          ? data.charts.timeline.avg_total_distance
+          : data.charts.timeline.avg_carry_distance;
+        const distLabel = metric === "total" ? "Avg total (yds)" : "Avg carry (yds)";
 
         const datasets = [
           {
-            label: "Avg carry (yds)",
-            data: [...data.charts.timeline.avg_carry_distance, ...nulls3],
+            label: distLabel,
+            data: [...distData, ...nulls3],
             borderColor: "#408114",
             backgroundColor: "rgba(64,129,20,0.12)",
             tension: 0.3,
@@ -730,7 +742,8 @@ def render_html() -> str:
           },
         ];
 
-        if (clubsWithFc.length) {
+        const callout = document.getElementById("trend-forecast-callout");
+        if (showForecast) {
           const [, firstClubFc] = clubsWithFc[0];
           const carry = firstClubFc.carry;
           const nullPad = actualLabels.map(() => null);
@@ -765,9 +778,8 @@ def render_html() -> str:
             tension: 0,
             yAxisID: "y",
           });
-
-          const callout = document.getElementById("trend-forecast-callout");
           callout.style.display = "block";
+          callout.innerHTML = "";
           const dir = carry.slope >= 0 ? "+" : "";
           const strong = document.createElement("strong");
           strong.textContent = `Forecast (${clubsWithFc[0][0]}): `;
@@ -775,9 +787,12 @@ def render_html() -> str:
           callout.appendChild(document.createTextNode(
             `trending ${dir}${carry.slope.toFixed(1)} yds/session — projected ${carry.predictions[2]} yds in 3 sessions`
           ));
+        } else {
+          callout.style.display = "none";
         }
 
-        return createChart("sessionTrend", {
+        if (sessionTrendChart) sessionTrendChart.destroy();
+        sessionTrendChart = createChart("sessionTrend", {
           type: "line",
           data: { labels: allLabels, datasets },
           options: {
@@ -793,7 +808,21 @@ def render_html() -> str:
             },
           },
         });
-      })();
+      };
+
+      renderSessionTrend(trendMetricMode);
+
+      document.querySelectorAll(".trend-metric-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          trendMetricMode = btn.dataset.metric;
+          document.querySelectorAll(".trend-metric-btn").forEach((b) => {
+            const isActive = b.dataset.metric === trendMetricMode;
+            b.style.background = isActive ? "#408114" : "#fff";
+            b.style.color = isActive ? "#fff" : "#1B7114";
+          });
+          renderSessionTrend(trendMetricMode);
+        });
+      });
 
       // ── Recent sessions list (latest 3) ────────────────────────────────
       (() => {
@@ -837,6 +866,7 @@ def render_html() -> str:
             row.appendChild(statCell(session.shot_count, "Shots"));
             row.appendChild(statCell(session.club_count, "Clubs"));
             row.appendChild(statCell(number(session.avg_carry_distance, 1), "Carry"));
+            row.appendChild(statCell(number(session.avg_total_distance, 1), "Total"));
             row.appendChild(statCell(number(session.avg_smash_factor, 2), "Smash"));
             row.appendChild(statCell(number(session.avg_offline_distance, 1), "Offline"));
             row.appendChild(statCell(number(session.outlier_rate, 0, "%"), "Outliers"));
@@ -1038,6 +1068,10 @@ def render_clubs_page() -> str:
         <div id=\"club-prediction-callout-lab\"></div>
         <div style=\"display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-top:16px;\">
           <div>
+            <div style=\"display:flex;gap:6px;margin-bottom:8px;\">
+              <button type=\"button\" class=\"carry-total-btn active\" data-metric=\"carry\" style=\"font-size:0.78rem;padding:4px 12px;border-radius:6px;border:1px solid rgba(30,52,10,0.2);background:#408114;color:#fff;cursor:pointer;\">Carry</button>
+              <button type=\"button\" class=\"carry-total-btn\" data-metric=\"total\" style=\"font-size:0.78rem;padding:4px 12px;border-radius:6px;border:1px solid rgba(30,52,10,0.2);background:#fff;color:#1B7114;cursor:pointer;\">Total</button>
+            </div>
             <div class=\"chart-canvas\"><canvas id=\"clubCarryChartLab\"></canvas></div>
             <div class=\"small\" id=\"club-carry-callout-lab\" style=\"display:none;margin-top:10px;\"></div>
           </div>
@@ -1045,7 +1079,7 @@ def render_clubs_page() -> str:
         </div>
         <div class=\"chart-canvas\" style=\"margin-top:16px;height:320px;\"><canvas id=\"clubDispersionChartLab\"></canvas></div>
         <div style=\"overflow-x:auto;margin-top:16px;\"><table>
-          <thead><tr><th>Session</th><th>Shots</th><th>Carry</th><th>Smash</th><th>Offline</th><th>Consistency</th></tr></thead>
+          <thead><tr><th>Session</th><th>Shots</th><th>Carry</th><th>Total</th><th>Smash</th><th>Offline</th><th>Consistency</th></tr></thead>
           <tbody id=\"club-session-table-body-lab\"></tbody>
         </table></div>
       </section>
@@ -1101,8 +1135,12 @@ def render_clubs_page() -> str:
           const strip = document.getElementById("club-stat-strip-lab");
           strip.innerHTML = "";
           const offline = club.avg_total_deviation_distance ?? club.avg_carry_deviation_distance;
+          const rollout = (club.avg_total_distance != null && club.avg_carry_distance != null)
+            ? club.avg_total_distance - club.avg_carry_distance : null;
           [
             ["Avg carry", number(club.avg_carry_distance, 1, " yds")],
+            ["Avg total", number(club.avg_total_distance, 1, " yds")],
+            ["Rollout", rollout != null ? "+" + rollout.toFixed(1) + " yds" : "—"],
             ["Smash", number(club.avg_smash_factor, 2)],
             ["Consistency", number(club.consistency_score, 1)],
             ["Avg offline", number(offline, 1, " yds")],
@@ -1184,6 +1222,7 @@ def render_clubs_page() -> str:
           const pathCloudFilterContainer = document.getElementById("path-cloud-filter-lab");
           pathCloudFilterContainer.innerHTML = "";
           let currentSessionFilter = pathCloudFilterContainer.dataset.activeFilter || "all";
+          let currentMetricMode = "carry";
           const totalSessions = data.sessions.length;
           
           const getFilteredSessionIndices = (filter) => {
@@ -1213,19 +1252,22 @@ def render_clubs_page() -> str:
                 : String(session.source_file || "session").slice(0, 10)
             );
             const carryValues = sessionRows.map(({ summary }) => summary.avg_carry_distance != null ? parseFloat(summary.avg_carry_distance.toFixed(1)) : null);
+            const totalValues = sessionRows.map(({ summary }) => summary.avg_total_distance != null ? parseFloat(summary.avg_total_distance.toFixed(1)) : null);
+            const activeDistValues = currentMetricMode === "total" ? totalValues : carryValues;
+            const activeDistLabel = currentMetricMode === "total" ? "Avg total (yds)" : "Avg carry (yds)";
             const smashValues = sessionRows.map(({ summary }) => summary.avg_smash_factor != null ? parseFloat(summary.avg_smash_factor.toFixed(3)) : null);
 
             let carryChartLabels = [...sessionLabels];
             const carryDatasets = [{
-              label: "Avg carry (yds)",
-              data: [...carryValues],
+              label: activeDistLabel,
+              data: [...activeDistValues],
               borderColor: "#408114",
               backgroundColor: "rgba(64,129,20,0.12)",
               tension: 0.3,
               pointRadius: 4,
             }];
             const carryCallout = document.getElementById("club-carry-callout-lab");
-            if (clubForecast && clubForecast.carry && carryValues.length && sessionFilter === "all") {
+            if (currentMetricMode === "carry" && clubForecast && clubForecast.carry && carryValues.length && sessionFilter === "all") {
               carryChartLabels = [...sessionLabels, "+1", "+2", "+3"];
               const nullPad = sessionLabels.map(() => null);
               carryDatasets[0].data = [...carryValues, null, null, null];
@@ -1428,7 +1470,7 @@ def render_clubs_page() -> str:
               clubCarryChart = new window.Chart(document.getElementById("clubCarryChartLab"), {
                 type: "line",
                 data: { labels: carryChartLabels, datasets: carryDatasets },
-                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false } },
+                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false }, scales: { y: { title: { display: true, text: activeDistLabel } } } },
               });
               
               if (clubSmashChart) clubSmashChart.destroy();
@@ -1499,6 +1541,7 @@ def render_clubs_page() -> str:
                 <td>${date}</td>
                 <td>${summary.shot_count ?? "—"}</td>
                 <td>${number(summary.avg_carry_distance, 1, " yds")}</td>
+                <td>${number(summary.avg_total_distance, 1, " yds")}</td>
                 <td>${number(summary.avg_smash_factor, 2)}</td>
                 <td>${number(summary.avg_total_deviation_distance ?? summary.avg_carry_deviation_distance, 1, " yds")}</td>
                 <td>${number(summary.consistency_score, 1)}</td>
@@ -1538,6 +1581,18 @@ def render_clubs_page() -> str:
 
           renderAllCharts(currentSessionFilter);
 
+          document.querySelectorAll(".carry-total-btn").forEach((btn) => {
+            btn.onclick = () => {
+              currentMetricMode = btn.dataset.metric;
+              document.querySelectorAll(".carry-total-btn").forEach((b) => {
+                const isActive = b.dataset.metric === currentMetricMode;
+                b.style.background = isActive ? "#408114" : "#fff";
+                b.style.color = isActive ? "#fff" : "#1B7114";
+              });
+              renderAllCharts(currentSessionFilter);
+            };
+          });
+
           document.querySelectorAll("#club-nav-pills-lab button").forEach((button) => {
             button.style.background = button.dataset.club === clubLabel ? "rgba(64,129,20,0.12)" : "#fff";
             button.style.borderColor = button.dataset.club === clubLabel ? "#408114" : "rgba(30,52,10,0.12)";
@@ -1571,7 +1626,7 @@ def render_sessions_page() -> str:
         <h2>Session Replay</h2>
         <p class=\"small\">Review each session in chronological order with carry, smash, offline, and flagged-shot rate.</p>
         <div style=\"overflow-x:auto;\"><table>
-          <thead><tr><th>Date</th><th>Club Mix</th><th>Shots</th><th>Carry</th><th>Smash</th><th>Offline</th><th>Flagged</th></tr></thead>
+          <thead><tr><th>Date</th><th>Club Mix</th><th>Shots</th><th>Carry</th><th>Total</th><th>Smash</th><th>Offline</th><th>Flagged</th></tr></thead>
           <tbody id=\"session-body\"></tbody>
         </table></div>
       </section>
@@ -1624,6 +1679,7 @@ def render_sessions_page() -> str:
             <td>${s.club_mix || "—"}</td>
             <td>${s.shot_count ?? "—"}</td>
             <td>${fmt(s.avg_carry_distance, 1, " yds")}</td>
+            <td>${fmt(s.avg_total_distance, 1, " yds")}</td>
             <td>${fmt(s.avg_smash_factor, 2)}</td>
             <td>${fmt(s.avg_offline_distance, 1, " yds")}</td>
             <td>${fmt(q.flagged_rate, 1, "%")}</td>
@@ -1643,29 +1699,28 @@ def render_sessions_page() -> str:
 def render_gapping_page() -> str:
     body = """
       <section class=\"panel\">
-        <h2>Carry Ladder And Target Error</h2>
-        <div style=\"display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));\">
-          <div class=\"chart-canvas small\"><canvas id=\"carryLadderChart\"></canvas></div>
-          <div class=\"chart-canvas small\"><canvas id=\"targetErrorChart\"></canvas></div>
-        </div>
+        <h2>Distance Ladder</h2>
+        <p style=\"margin:0 0 14px;font-size:0.88rem;color:var(--muted);\">How far each club actually goes — carry (ball in air) and total (carry + rollout). Gaps between consecutive clubs should be 10–25 yds for good course management.</p>
+        <div class=\"chart-canvas\" style=\"height:320px;\"><canvas id=\"distanceLadderChart\"></canvas></div>
       </section>
       <section class=\"panel\">
-        <h2>Gapping And Target Control</h2>
+        <h2>Club Spacing</h2>
+        <p style=\"margin:0 0 14px;font-size:0.88rem;color:var(--muted);\">Distance from each club to the next longer one in the bag. <span style=\"color:#408114;font-weight:700;\">Green</span> = good gap (10–25 yds), <span style=\"color:#D4721C;font-weight:700;\">orange</span> = too close (&lt;10 yds) or too far (&gt;25 yds).</p>
         <div style=\"overflow-x:auto;\"><table>
-          <thead><tr><th>Club</th><th>Target carry</th><th>Avg carry</th><th>Target total</th><th>Avg total</th><th>Carry SD</th><th>Carry target error</th><th>Total target error</th><th>Strike potential</th></tr></thead>
+          <thead><tr><th>Club</th><th>Avg carry</th><th>Avg total</th><th>Rollout</th><th>Gap to next club</th><th>Consistency (SD)</th><th>Shots</th></tr></thead>
           <tbody id=\"gapping-body\"></tbody>
         </table></div>
-        <div style=\"margin-top:18px;\">
-          <div class=\"small\" style=\"text-transform:uppercase;letter-spacing:0.08em;font-weight:700;\">Progress To Goal</div>
-          <div class=\"chart-canvas\" style=\"height:420px;margin-top:10px;\"><canvas id=\"goalSlopeChart\"></canvas></div>
-          <p class=\"small\" style=\"margin-top:8px;\">Each line shows one club moving from your current average carry to the target carry goal.</p>
-        </div>
       </section>
       <section class=\"panel\">
-        <h2>Environment Context</h2>
+        <h2>Progress To Goal</h2>
+        <p style=\"margin:0 0 14px;font-size:0.88rem;color:var(--muted);\">Each bar shows how far each club is from its carry distance target. Negative means you already exceed the goal.</p>
+        <div class=\"chart-canvas\" style=\"height:340px;\"><canvas id=\"goalProgressChart\"></canvas></div>
+      </section>
+      <section class=\"panel\">
+        <h2>Weather &amp; Conditions</h2>
         <div style=\"display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));align-items:stretch;\">
           <div style=\"padding:16px;border:1px solid rgba(30,52,10,0.12);border-radius:16px;background:linear-gradient(180deg,rgba(64,129,20,0.08),rgba(242,242,240,0.95));\">
-            <div class=\"small\" style=\"text-transform:uppercase;letter-spacing:0.08em;font-weight:700;\">Atmosphere</div>
+            <div class=\"small\" style=\"text-transform:uppercase;letter-spacing:0.08em;font-weight:700;\">Conditions</div>
             <div id=\"env-summary\" style=\"margin-top:10px;font-size:1.05rem;line-height:1.5;font-weight:650;color:#1E340A;\"></div>
           </div>
           <div id=\"env-metrics\" style=\"display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));\"></div>
@@ -1698,130 +1753,162 @@ def render_gapping_page() -> str:
           return String(left.club_label || "").localeCompare(String(right.club_label || ""));
         });
         const clubs = clubsData.map((c) => c.club_label);
-        const targetCarryValues = clubs.map((clubLabel) => (target[clubLabel] || {}).auto_target_carry_distance_avg);
         const avgCarryValues = clubsData.map((club) => club.avg_carry_distance);
+        const avgTotalValues = clubsData.map((club) => club.avg_total_distance);
+        const targetCarryValues = clubs.map((clubLabel) => (target[clubLabel] || {}).auto_target_carry_distance_avg);
         const gapToGoalValues = clubs.map((clubLabel, index) => {
           const goal = targetCarryValues[index];
           const actual = avgCarryValues[index];
-          if (goal === null || goal === undefined || actual === null || actual === undefined) return null;
+          if (goal == null || actual == null) return null;
           return Number(goal) - Number(actual);
         });
+
         if (window.Chart && clubs.length) {
-          new window.Chart(document.getElementById("carryLadderChart"), {
+          // Distance Ladder — grouped carry + total bars
+          new window.Chart(document.getElementById("distanceLadderChart"), {
             type: "bar",
             data: {
               labels: clubs,
-              datasets: [{
-                label: "Avg carry (yds)",
-                data: avgCarryValues,
-                backgroundColor: "rgba(64,129,20,0.65)",
-                borderColor: "#408114",
-              }],
-            },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } },
-          });
-          new window.Chart(document.getElementById("targetErrorChart"), {
-            type: "line",
-            data: {
-              labels: clubs,
-              datasets: [{
-                label: "Carry target error (yds)",
-                data: clubs.map((c) => (target[c] || {}).carry_target_error_avg),
-                borderColor: "#1B7114",
-                backgroundColor: "rgba(27,113,20,0.1)",
-                tension: 0.3,
-              }],
-            },
-            options: { responsive: true, maintainAspectRatio: false },
-          });
-
-          const slopeDatasets = clubs.map((clubLabel, index) => {
-            const avg = avgCarryValues[index];
-            const targetCarry = targetCarryValues[index];
-            const gap = gapToGoalValues[index];
-            const isOnTrack = typeof gap === "number" && gap <= 0;
-            return {
-              label: clubLabel,
-              data: [avg, targetCarry],
-              borderColor: isOnTrack ? "#4D6E24" : "#1B7114",
-              backgroundColor: isOnTrack ? "#4D6E24" : "#1B7114",
-              pointBackgroundColor: ["#408114", isOnTrack ? "#4D6E24" : "#1B7114"],
-              pointBorderColor: ["#408114", isOnTrack ? "#4D6E24" : "#1B7114"],
-              borderWidth: 2,
-              pointRadius: [4, 6],
-              pointHoverRadius: [6, 8],
-              tension: 0,
-            };
-          });
-
-          new window.Chart(document.getElementById("goalSlopeChart"), {
-            type: "line",
-            data: {
-              labels: ["Avg carry", "Target carry"],
-              datasets: slopeDatasets,
+              datasets: [
+                {
+                  label: "Avg carry (yds)",
+                  data: avgCarryValues,
+                  backgroundColor: "rgba(64,129,20,0.75)",
+                  borderColor: "#408114",
+                  borderWidth: 1,
+                },
+                {
+                  label: "Avg total (yds)",
+                  data: avgTotalValues,
+                  backgroundColor: "rgba(64,129,20,0.28)",
+                  borderColor: "#408114",
+                  borderWidth: 1,
+                  borderDash: [4, 2],
+                },
+              ],
             },
             options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { position: "top" },
+                tooltip: {
+                  callbacks: {
+                    afterBody: (items) => {
+                      const idx = items[0]?.dataIndex;
+                      const carry = avgCarryValues[idx];
+                      const total = avgTotalValues[idx];
+                      if (carry != null && total != null) {
+                        return [`Rollout: +${(total - carry).toFixed(1)} yds`];
+                      }
+                      return [];
+                    },
+                  },
+                },
+              },
+              scales: {
+                y: { beginAtZero: true, title: { display: true, text: "Distance (yds)" } },
+              },
+            },
+          });
+
+          // Progress To Goal — horizontal bar showing gap to target
+          const goalLabels = [];
+          const goalData = [];
+          const goalColors = [];
+          clubs.forEach((clubLabel, index) => {
+            const gap = gapToGoalValues[index];
+            if (gap == null) return;
+            goalLabels.push(clubLabel);
+            goalData.push(Number(gap.toFixed(1)));
+            goalColors.push(gap <= 0 ? "rgba(64,129,20,0.7)" : "rgba(212,114,28,0.7)");
+          });
+          new window.Chart(document.getElementById("goalProgressChart"), {
+            type: "bar",
+            data: {
+              labels: goalLabels,
+              datasets: [{
+                label: "Gap to target carry (yds)",
+                data: goalData,
+                backgroundColor: goalColors,
+                borderColor: goalColors.map((c) => c.replace("0.7", "1")),
+                borderWidth: 1,
+              }],
+            },
+            options: {
+              indexAxis: "y",
               responsive: true,
               maintainAspectRatio: false,
               plugins: {
                 legend: { display: false },
                 tooltip: {
                   callbacks: {
-                    title: (items) => `${items[0].dataset.label} · ${items[0].label}`,
-                    label: (ctx) => `Carry: ${ctx.parsed.y?.toFixed(1)} yds`,
-                    afterLabel: (ctx) => {
-                      const gap = gapToGoalValues[ctx.datasetIndex];
-                      if (gap === null || gap === undefined) return "Gap to goal: —";
-                      const sign = gap > 0 ? "+" : "";
-                      return `Gap to goal: ${sign}${gap.toFixed(1)} yds`;
+                    label: (ctx) => {
+                      const v = ctx.parsed.x;
+                      return v <= 0 ? `Exceeds target by ${Math.abs(v).toFixed(1)} yds` : `${v.toFixed(1)} yds short of target`;
                     },
                   },
                 },
               },
               scales: {
-                y: { title: { display: true, text: "Carry distance (yds)" } },
-                x: { grid: { color: "rgba(30,52,10,0.08)" } },
+                x: { title: { display: true, text: "Yards from target (negative = already there)" } },
               },
             },
           });
         }
+
+        // Club Spacing table
         const rows = document.getElementById("gapping-body");
-        clubsData.forEach((club) => {
-          const t = target[club.club_label] || {};
+        clubsData.forEach((club, index) => {
+          const carry = club.avg_carry_distance;
+          const total = club.avg_total_distance;
+          const rollout = (carry != null && total != null) ? total - carry : null;
+          const nextCarry = index > 0 ? avgCarryValues[index - 1] : null;
+          const gap = (carry != null && nextCarry != null) ? nextCarry - carry : null;
+          let gapColor = "inherit";
+          let gapNote = "";
+          if (gap != null) {
+            if (gap < 10) { gapColor = "#D4721C"; gapNote = " (too close)"; }
+            else if (gap > 25) { gapColor = "#D4721C"; gapNote = " (big void)"; }
+            else { gapColor = "#408114"; }
+          }
           const row = document.createElement("tr");
           row.innerHTML = `
-            <td><div>${club.club_label}</div><div class="small">${club.club_group || "Club"}</div></td>
-            <td>${fmt(t.auto_target_carry_distance_avg, 0, " yds")}</td>
-            <td>${fmt(club.avg_carry_distance, 1, " yds")}</td>
-            <td>${fmt(t.auto_target_total_distance_avg, 0, " yds")}</td>
-            <td>${fmt(club.avg_total_distance, 1, " yds")}</td>
+            <td><div style="font-weight:700;">${club.club_label}</div><div class="small">${club.club_group || "Club"}</div></td>
+            <td>${fmt(carry, 1, " yds")}</td>
+            <td>${fmt(total, 1, " yds")}</td>
+            <td>${rollout != null ? "+" + rollout.toFixed(1) + " yds" : "—"}</td>
+            <td style="color:${gapColor};font-weight:${gap != null ? "700" : "400"};">${gap != null ? gap.toFixed(1) + " yds" + gapNote : "—"}</td>
             <td>${fmt(club.carry_stddev, 1, " yds")}</td>
-            <td>${fmt(t.carry_target_error_avg, 1, " yds")}</td>
-            <td>${fmt(t.total_target_error_avg, 1, " yds")}</td>
-            <td>${fmt(club.potential_gap_pct, 0, "%")}</td>
+            <td>${club.shot_count ?? "—"}</td>
           `;
           rows.appendChild(row);
         });
+
+        // Weather section
         const env = data.environment || {};
-        document.getElementById("env-summary").textContent = [
-          `Average temp ${fmt((env.conditions || {}).temperature_avg, 1)} F`,
-          `Humidity ${fmt((env.conditions || {}).relative_humidity_avg, 1)}%`,
-          `Air pressure ${fmt((env.conditions || {}).air_pressure_avg, 2)} inHg`
-        ].join(" · ");
+        const tempAvg = (env.conditions || {}).temperature_avg;
+        const tempSlope = env.carry_vs_temperature_slope;
+        document.getElementById("env-summary").innerHTML = [
+          `<div>Avg temp: <strong>${fmt(tempAvg, 0)}°F</strong></div>`,
+          `<div>Humidity: <strong>${fmt((env.conditions || {}).relative_humidity_avg, 0)}%</strong></div>`,
+          `<div>Air pressure: <strong>${fmt((env.conditions || {}).air_pressure_avg, 2)} inHg</strong></div>`,
+        ].join("");
         const envMetrics = document.getElementById("env-metrics");
         envMetrics.innerHTML = "";
+        const tempImpact = tempSlope != null ? (tempSlope * 10).toFixed(1) : null;
         [
-          ["Air density", fmt((env.conditions || {}).air_density_avg, 3), "g/L"],
-          ["Carry vs temp", fmt(env.carry_vs_temperature_slope, 3), "yds/F"],
-          ["Carry vs density", fmt(env.carry_vs_air_density_slope, 3), "yds/(g/L)"],
-          ["Samples", fmt(env.sample_size, 0), "shots"],
-        ].forEach(([label, value, suffix]) => {
+          ["Air density", fmt((env.conditions || {}).air_density_avg, 3), "g/L", null],
+          ["Temp effect", tempImpact != null ? (tempImpact >= 0 ? "+" : "") + tempImpact : "—", "yds per 10°F", "Warmer air = longer carry"],
+          ["Density effect", fmt(env.carry_vs_air_density_slope != null ? env.carry_vs_air_density_slope * 0.1 : null, 2), "yds per 0.1 g/L", "Lower density = longer carry"],
+          ["Samples", fmt(env.sample_size, 0), "shots", null],
+        ].forEach(([label, value, suffix, note]) => {
           const card = document.createElement("div");
           card.style.padding = "14px";
           card.style.border = "1px solid rgba(30,52,10,0.12)";
           card.style.borderRadius = "14px";
           card.style.background = "rgba(242,242,240,0.92)";
-          card.innerHTML = `<div style=\"font-size:1.35rem;font-weight:800;color:#1E340A;\">${value}</div><div class=\"small\" style=\"margin-top:4px;\">${label}${suffix ? ` <span style=\\\"opacity:0.7;\\\">${suffix}</span>` : ""}</div>`;
+          card.innerHTML = `<div style=\"font-size:1.25rem;font-weight:800;color:#1E340A;\">${value} <span style=\"font-size:0.75rem;font-weight:400;opacity:0.7;\">${suffix}</span></div><div class=\"small\" style=\"margin-top:4px;\">${label}</div>${note ? `<div class=\"small\" style=\"opacity:0.6;margin-top:2px;\">${note}</div>` : ""}`;
           envMetrics.appendChild(card);
         });
       </script>
@@ -1829,7 +1916,7 @@ def render_gapping_page() -> str:
     return _render_subpage(
         "Gapping And Environment - Golf Range Analytics",
         "Gapping And Environment",
-        "Distance spacing, target-distance control, and weather context to explain carry changes.",
+        "How far each club goes, gaps between clubs, progress toward distance goals, and weather context.",
         body,
     )
 
